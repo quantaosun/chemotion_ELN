@@ -4,15 +4,17 @@
 #
 # Table name: wellplates
 #
-#  id             :integer          not null, primary key
-#  name           :string
-#  size           :integer
-#  description    :string
-#  created_at     :datetime         not null
-#  updated_at     :datetime         not null
-#  deleted_at     :datetime
-#  short_label    :string
-#  readout_titles :jsonb
+#  id                     :integer          not null, primary key
+#  name                   :string
+#  description            :string
+#  created_at             :datetime         not null
+#  updated_at             :datetime         not null
+#  deleted_at             :datetime
+#  short_label            :string
+#  readout_titles         :jsonb
+#  plain_text_description :text
+#  width                  :integer          default(12)
+#  height                 :integer          default(8)
 #
 # Indexes
 #
@@ -64,7 +66,7 @@ class Wellplate < ApplicationRecord
   scope :by_name, ->(query) { where('name ILIKE ?', "%#{sanitize_sql_like(query)}%") }
   scope :by_sample_ids, ->(ids) { joins(:samples).where('samples.id in (?)', ids) }
   scope :by_screen_ids, ->(ids) { joins(:screens).where('screens.id in (?)', ids) }
-  scope :includes_for_list_display, -> { includes(:tag, :comments) }
+  scope :includes_for_list_display, -> { includes(:tag) }
 
   has_many :collections_wellplates, dependent: :destroy
   has_many :collections, through: :collections_wellplates
@@ -156,11 +158,15 @@ class Wellplate < ApplicationRecord
     update(short_label: "#{user_label}-#{prefix}#{counter}")
   end
 
+  def size
+    width * height
+  end
+
   private
 
   def description_to_plain_text
     return unless description_changed?
 
-    self.plain_text_description = Chemotion::QuillToPlainText.new.convert(description)
+    self.plain_text_description = Chemotion::QuillToPlainText.convert(description)
   end
 end

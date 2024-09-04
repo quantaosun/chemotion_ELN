@@ -16,6 +16,7 @@ import ElementStore from 'src/stores/alt/stores/ElementStore';
 import ElementAllCheckbox from 'src/apps/mydb/elements/list/ElementAllCheckbox';
 import ElementsTableEntries from 'src/apps/mydb/elements/list/ElementsTableEntries';
 import ElementsTableSampleEntries from 'src/apps/mydb/elements/list/ElementsTableSampleEntries';
+import { SearchUserLabels } from 'src/components/UserLabels';
 
 import UserStore from 'src/stores/alt/stores/UserStore';
 import ElementsTableGroupedEntries from 'src/apps/mydb/elements/list/ElementsTableGroupedEntries';
@@ -27,6 +28,7 @@ import CellLineContainer from 'src/apps/mydb/elements/list/cellLine/CellLineCont
 export default class ElementsTable extends React.Component {
   constructor(props) {
     super(props);
+    this.elementRef = React.createRef();
 
     this.state = {
       elements: [],
@@ -49,6 +51,7 @@ export default class ElementsTable extends React.Component {
     this.changeDateFilter = this.changeDateFilter.bind(this);
 
     this.toggleProductOnly = this.toggleProductOnly.bind(this);
+    this.setUserLabel = this.setUserLabel.bind(this);
     this.setFromDate = this.setFromDate.bind(this);
     this.setToDate = this.setToDate.bind(this);
     this.timer = null;
@@ -76,9 +79,15 @@ export default class ElementsTable extends React.Component {
       }, () => {
         const { page } = this.state;
         UIActions.setPagination({ type, page });
+        this.handleScrollToElement(this.elementRef);
       });
     }
   }
+  handleScrollToElement = () => {
+    if (this.elementRef.current) {
+      this.elementRef.current.scrollTo({ top: 0, left: 0, behavior: "smooth", });
+    }
+  };
 
   onChangeUI(state) {
     const { type } = this.props;
@@ -87,7 +96,7 @@ export default class ElementsTable extends React.Component {
     }
     const { checkedIds, uncheckedIds, checkedAll } = state[type];
     const {
-      filterCreatedAt, fromDate, toDate, number_of_results, currentSearchByID, productOnly
+      filterCreatedAt, fromDate, toDate, userLabel, number_of_results, currentSearchByID, productOnly
     } = state;
 
     // check if element details of any type are open at the moment
@@ -99,7 +108,7 @@ export default class ElementsTable extends React.Component {
     const { currentStateProductOnly, searchResult } = this.state;
     const stateChange = (
       checkedIds || uncheckedIds || checkedAll || currentId || filterCreatedAt
-      || fromDate || toDate || productOnly !== currentStateProductOnly
+      || fromDate || toDate || userLabel || productOnly !== currentStateProductOnly
       || isSearchResult !== searchResult
     );
     const moleculeSort = isSearchResult ? true : ElementStore.getState().moleculeSort;
@@ -114,7 +123,8 @@ export default class ElementsTable extends React.Component {
           currentId,
           number_of_results,
           fromDate,
-          toDate
+          toDate,
+          userLabel,
         },
         productOnly,
         searchResult: isSearchResult,
@@ -141,6 +151,11 @@ export default class ElementsTable extends React.Component {
     const nextState = { page, pages, currentElement };
     if (elementsDidChange) { nextState.elements = elements; }
     if (elementsDidChange || currentElementDidChange) { this.setState(nextState); }
+  }
+
+  setUserLabel(label) {
+    const { userLabel } = this.state;
+    if (userLabel !== label) UIActions.setUserLabel(label);
   }
 
   setFromDate(date) {
@@ -550,15 +565,19 @@ export default class ElementsTable extends React.Component {
   renderHeader = () => {
     const { filterCreatedAt, ui } = this.state;
     const { type, showReport, genericEl } = this.props;
-    const { fromDate, toDate } = ui;
+    const { fromDate, toDate, userLabel } = ui;
 
+    let searchLabel = <span />;
     let typeSpecificHeader = <span />;
     if (type === 'sample') {
       typeSpecificHeader = this.renderSamplesHeader();
+      searchLabel = <SearchUserLabels userLabel={userLabel} fnCb={this.setUserLabel} />;
     } else if (type === 'reaction') {
       typeSpecificHeader = this.renderReactionsHeader();
+      searchLabel = <SearchUserLabels userLabel={userLabel} fnCb={this.setUserLabel} />;
     } else if (genericEl) {
       typeSpecificHeader = this.renderGenericElementsHeader();
+      searchLabel = <SearchUserLabels userLabel={userLabel} fnCb={this.setUserLabel} />;
     }
 
     const filterTitle = filterCreatedAt === true
@@ -587,6 +606,7 @@ export default class ElementsTable extends React.Component {
             flexWrap: 'wrap'
           }}
         >
+          {searchLabel}
           <OverlayTrigger placement="top" overlay={filterTooltip}>
             <button
               type="button"
@@ -603,7 +623,7 @@ export default class ElementsTable extends React.Component {
               onChange={this.setFromDate}
               popperPlacement="bottom-start"
               isClearable
-              dateFormat="DD-MM-YY"
+              dateFormat="dd-MM-YY"
             />
           </div>
           <div className="sample-list-to-date">
@@ -613,7 +633,7 @@ export default class ElementsTable extends React.Component {
               popperPlacement="bottom"
               onChange={this.setToDate}
               isClearable
-              dateFormat="DD-MM-YY"
+              dateFormat="dd-MM-YY"
             />
           </div>
           {typeSpecificHeader}
@@ -663,13 +683,13 @@ export default class ElementsTable extends React.Component {
       );
     } else if (type === 'cell_line'){
       elementsTableEntries = (
-        <CellLineContainer 
+        <CellLineContainer
         cellLineGroups={CellLineGroup.buildFromElements(elements)}
       />
       );
     }
-    
-    
+
+
     else {
       elementsTableEntries = (
         <ElementsTableEntries
@@ -682,7 +702,7 @@ export default class ElementsTable extends React.Component {
     }
 
     return (
-      <div className="list-elements">
+      <div ref={this.elementRef} className="list-elements">
         {elementsTableEntries}
       </div>
     );

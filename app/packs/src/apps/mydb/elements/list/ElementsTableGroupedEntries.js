@@ -11,12 +11,13 @@ import UIStore from 'src/stores/alt/stores/UIStore';
 import ElementStore from 'src/stores/alt/stores/ElementStore';
 import KeyboardStore from 'src/stores/alt/stores/KeyboardStore';
 
-import DragDropItemTypes from 'src/components/DragDropItemTypes';
+import { DragDropItemTypes } from 'src/utilities/DndConst';
 import { elementShowOrNew } from 'src/utilities/routesUtils';
 import SvgWithPopover from 'src/components/common/SvgWithPopover';
 
 import { reactionStatus, reactionRole } from 'src/apps/mydb/elements/list/ElementsTableEntries';
 import CommentIcon from 'src/components/comments/CommentIcon';
+import { ShowUserLabels } from 'src/components/UserLabels';
 import Aviator from 'aviator';
 
 const dragHandle = (element) => {
@@ -349,6 +350,7 @@ export default class ElementsTableGroupedEntries extends Component {
               <div style={{ alignItems: 'center', display: 'flex', gap: 5 }}>
                 {reactionStatus(element)}
                 {reactionRole(element)}
+                <ShowUserLabels element={element} />
               </div>
               <CommentIcon commentCount={element.comment_count} />
               <ElementCollectionLabels element={element} key={element.id} />
@@ -390,6 +392,7 @@ export default class ElementsTableGroupedEntries extends Component {
               <div className="preview-table">
                 {element.title()}
               </div>
+              <ShowUserLabels element={element} />
               <ElementCollectionLabels element={element} key={element.id} />
             </div>
           </td>

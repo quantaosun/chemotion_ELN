@@ -51,7 +51,6 @@ module Chemotion
       error!(message, 404)
     end
 
-
     resource :export_ds do
       before do
         @container = Container.find_by(id: params[:container_id])
@@ -61,7 +60,7 @@ module Chemotion
                     ElementPermissionProxy.new(current_user, element, user_ids).read_dataset?
         error!('401 Unauthorized', 401) unless can_dwnld
       end
-      desc "Download the dataset attachment file"
+      desc 'Download the dataset attachment file'
       get 'dataset/:container_id' do
         env['api.format'] = :binary
         export = Labimotion::ExportDataset.new
@@ -77,6 +76,8 @@ module Chemotion
 
     resource :attachments do
       before do
+        next if request.path.end_with?('bulk_delete') && request.request_method == 'DELETE'
+
         @attachment = Attachment.find_by(id: params[:attachment_id])
 
         @attachment = Attachment.find_by(identifier: params[:identifier]) if @attachment.nil? && params[:identifier]
@@ -101,15 +102,42 @@ module Chemotion
                           ElementPermissionProxy.new(current_user, element, user_ids).read_dataset?
             end
           elsif @attachment
+
             can_dwnld = @attachment.container_id.nil? && @attachment.created_for == current_user.id
-            if !can_dwnld && (element = @attachment.container&.root&.containable)
-              can_dwnld = (element.is_a?(User) && (element == current_user)) ||
-                          (ElementPolicy.new(current_user, element).read? &&
-                          ElementPermissionProxy.new(current_user, element, user_ids).read_dataset?)
+
+            if !can_dwnld && (element = @attachment.container&.root&.containable || @attachment.attachable)
+              can_dwnld = if element.is_a?(Container)
+                            false
+                          else
+                            (element.is_a?(User) && (element == current_user)) ||
+                              (
+                                ElementPolicy.new(current_user, element).read? &&
+                              ElementPermissionProxy.new(current_user, element, user_ids).read_dataset?
+                              )
+                          end
             end
           end
           error!('401 Unauthorized', 401) unless can_dwnld
         end
+      end
+
+      desc 'Bulk Delete Attachments'
+      delete 'bulk_delete' do
+        ids = params[:ids]
+        attachments = Attachment.where(id: ids)
+
+        unpermitted_attachments = attachments.reject { |attachment| writable?(attachment) }
+
+        if unpermitted_attachments.any?
+          error!('401 Unauthorized', 401)
+        else
+          deleted_attachments = attachments.destroy_all
+        end
+
+        render json: { deleted_attachments: deleted_attachments }, status: :ok
+      rescue StandardError => e
+        render json: { error: e.message }, status: :unprocessable_entity
+        Rails.logger.error("Error deleting attachments: #{e.message}")
       end
 
       desc 'Delete Attachment'
@@ -193,6 +221,7 @@ module Chemotion
         content_type 'application/octet-stream'
 
         env['api.format'] = :binary
+
         store = @attachment.attachment.storage.directory
         file_location = store.join(
           @attachment.attachment_data['derivatives']['annotation']['annotated_file_location'] || 'not available',
@@ -476,6 +505,8 @@ module Chemotion
         optional :curveIdx, type: Integer
         optional :simulatenmr, type: Boolean
         optional :axesUnits, type: String
+        optional :detector, type: String
+        optional :dscMetaData, type: String
       end
       post 'save_spectrum' do
         jcamp_att = @attachment.generate_spectrum(

@@ -26,8 +26,7 @@ module Chemotion
 
       desc 'list user labels'
       get 'list_labels' do
-        labels = UserLabel.where('user_id = ? or access_level >= 1', current_user.id)
-                          .order('access_level desc, position, title')
+        labels = UserLabel.my_labels(current_user)
         present labels || [], with: Entities::UserLabelEntity, root: 'labels'
       end
 
@@ -37,7 +36,8 @@ module Chemotion
         %w[chemdrawEditor marvinjsEditor ketcher2Editor].each do |str|
           editors.push(str) if current_user.matrix_check_by_name(str)
         end
-        present Matrice.where(name: editors).order('name'), with: Entities::MatriceEntity, root: 'matrices'
+        present Matrice.where(name: editors).order('name'), with: Entities::MatriceEntity, root: 'matrices',
+                                                            unexpose_include_ids: true, unexpose_exclude_ids: true
       end
 
       namespace :omniauth_providers do
@@ -190,7 +190,7 @@ module Chemotion
 
         put ':id' do
           if @rm_current_user_id
-            @group.users.delete(User.where(id: rm_user_id))
+            @group.users.delete(User.where(id: @rm_current_user_id))
             User.gen_matrix([@rm_current_user_id])
             present @group, with: Entities::GroupEntity, root: 'group'
           elsif params[:destroy_group]
@@ -224,9 +224,9 @@ module Chemotion
 
       get :novnc do
         devices = if params[:id] == '0'
-                    Device.by_user_ids(user_ids).novnc.includes(:profile)
+                    Device.by_user_ids(user_ids).where.not(novnc_target: nil).group('devices.id').order('devices.name')
                   else
-                    Device.by_user_ids(user_ids).novnc.where(id: params[:id]).includes(:profile)
+                    Device.by_user_ids(user_ids).where(id: params[:id]).group('devices.id')
                   end
         present devices, with: Entities::DeviceNovncEntity, root: 'devices'
       end

@@ -47,8 +47,8 @@ export const solventOptions = [{
   label: 'Methanol',
   value: 'Methanol'
 }, {
-  label: 'Methylene chloride (DCM)',
-  value: 'Methylene chloride'
+  label: 'Dichloromethane (DCM - Methylene chloride)',
+  value: 'Methylene Chloride'
 }, {
   label: 'Methyl tert-butyl ether (MTBE)',
   value: 'Methyl tert-butyl ether'
@@ -214,9 +214,9 @@ export const defaultMultiSolventsSmilesOptions = [{
     density: 0.79
   }
 }, {
-  label: 'Methylene chloride (DCM)',
+  label: 'Dichloromethane (DCM - Methylene chloride)',
   value: {
-    external_label: 'DCM',
+    external_label: 'Dichloromethane',
     smiles: 'ClCCl',
     density: 1.33
   }
@@ -609,7 +609,7 @@ export const temperatureOptions = [
   { value: '°F', label: '°F' },
   { value: 'K', label: 'K' }
 ];
-  
+
 export const durationOptions = [
   { value: 'Hour(s)', label: 'Hour(s)' },
   { value: 'Minute(s)', label: 'Minute(s)' },

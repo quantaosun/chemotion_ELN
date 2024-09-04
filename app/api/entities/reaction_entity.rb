@@ -46,6 +46,8 @@ module Entities
       expose! :tlc_description,                             unless: :displayed_in_list
       expose! :tlc_solvents,                                unless: :displayed_in_list
       expose! :variations,            anonymize_with: [],                               using: 'Entities::ReactionVariationEntity'
+      expose! :vessel_size
+      expose! :gaseous
     end
 
     expose_timestamps
@@ -54,10 +56,6 @@ module Entities
 
     def can_update
       options[:policy].try(:update?) || false
-    end
-
-    def can_copy
-      options[:policy].try(:copy?) || false
     end
 
     def code_log

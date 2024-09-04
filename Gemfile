@@ -16,10 +16,6 @@ gem 'bibtex-ruby'
 gem 'bootsnap'
 gem 'bootstrap-sass'
 gem 'charlock_holmes'
-
-# gem 'chem_scanner', git: 'git@git.scc.kit.edu:ComPlat/chem_scanner.git'
-gem 'chem_scanner', git: 'https://github.com/complat/chem_scanner.git'
-
 gem 'closure_tree'
 gem 'countries'
 
@@ -35,6 +31,7 @@ gem 'faraday'
 gem 'faraday-follow_redirects'
 gem 'faraday-multipart'
 gem 'font-awesome-rails'
+gem 'fugit'
 gem 'fun_sftp', git: 'https://github.com/fl9/fun_sftp.git', branch: 'allow-port-option'
 gem 'fx'
 
@@ -45,7 +42,7 @@ gem 'grape-swagger'
 gem 'grape-swagger-entity'
 gem 'grape-swagger-rails'
 
-gem 'graphql'
+gem 'graphql', '< 2.2'
 
 gem 'haml-rails'
 gem 'hashie-forbidden_attributes'
@@ -59,11 +56,13 @@ gem 'jwt'
 
 gem 'kaminari'
 gem 'kaminari-grape'
-gem 'ketcherails', git: 'https://github.com/complat/ketcher-rails.git', branch: 'upgrade-to-rails-6'
+# gem 'ketcherails', git: 'https://github.com/complat/ketcher-rails.git', branch: 'upgrade-to-rails-6'
+gem 'ketcherails', git: 'https://github.com/complat/ketcher-rails.git', ref: 'd4ae864a0e2d9e853eac8e4fc4ce7e3ab8174f80'
 
-gem 'labimotion', '1.0.19'
+gem 'labimotion', '1.4.0.1'
 
 gem 'mimemagic', '0.3.10'
+gem 'mime-types'
 
 # locked to enforce latest version of net-scp. without lock net-ssh would be updated first which locks
 # out newer net-scp versions
@@ -79,9 +78,10 @@ gem 'omniauth_openid_connect'
 gem 'omniauth-orcid', git: 'https://github.com/datacite/omniauth-orcid'
 gem 'omniauth-shibboleth'
 
+gem 'chemical_elements'
 gem 'openbabel', '2.4.90.3', git: 'https://github.com/ptrxyz/openbabel-gem.git', branch: 'ptrxyz-ctime-fix'
 gem 'pandoc-ruby'
-gem 'paranoia'
+gem 'paranoia', '2.6.0'
 gem 'pg'
 gem 'pg_search'
 gem 'prawn'
@@ -91,9 +91,9 @@ gem 'pundit'
 
 gem 'rack'
 gem 'rack-cors', require: 'rack/cors'
-gem 'rails', '~> 6.1.7.3'
+gem 'rails', '~> 6.1.7.7'
 gem 'rdkit_chem', git: 'https://github.com/ptrxyz/rdkit_chem.git', branch: 'pk01'
-gem 'rinchi-gem', '1.0.1', git: 'https://git.scc.kit.edu/ComPlat/rinchi-gem.git'
+gem 'rinchi-gem', '1.0.2', git: 'https://github.com/ComPlat/rinchi-gem.git', branch: 'main'
 gem 'rmagick'
 gem 'roo'
 gem 'rqrcode' # required for Barby to work but not listed as its dependency -_-
@@ -128,14 +128,6 @@ gem 'icalendar'
 
 group :development do
   gem 'better_errors' # allows to debug exception on backend from browser
-
-  gem 'capistrano'
-  gem 'capistrano-bundler'
-  gem 'capistrano-npm'
-  gem 'capistrano-nvm', require: false
-  gem 'capistrano-rails'
-  gem 'capistrano-rvm'
-  gem 'capistrano-yarn'
 
   gem 'fast_stack'    # For Ruby MRI 2.0
   gem 'flamegraph'
@@ -195,6 +187,8 @@ group :test do
   gem 'launchy'
 
   gem 'rspec-repeat'
+
+  gem 'shoulda-matchers'
 
   gem 'simplecov', require: false
   gem 'simplecov-lcov', require: false

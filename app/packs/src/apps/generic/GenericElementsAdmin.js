@@ -8,13 +8,13 @@ import SyncBtn from 'src/apps/generic/SyncButton';
 import LoadingModal from 'src/components/common/LoadingModal';
 import Notifications from 'src/components/Notifications';
 import GenericElsFetcher from 'src/fetchers/GenericElsFetcher';
+import GenericKlassFetcher from 'src/fetchers/GenericKlassFetcher'; 
 import UsersFetcher from 'src/fetchers/UsersFetcher';
 import LoadingActions from 'src/stores/alt/actions/LoadingActions';
+import { FunctionLocation, GenericMenu, Unauthorized } from 'src/apps/generic/GenericUtils';
 import { notification, submit } from 'src/apps/generic/Utils';
-import {
-  GenericAdminNav,
-  GenericAdminUnauth,
-} from 'src/apps/generic/GenericAdminNav';
+
+const FN_ID = 'GenericElements';
 
 const validateKlass = klass => /\b[a-z]{3,5}\b/g.test(klass);
 const validateInput = element => {
@@ -77,6 +77,8 @@ export default class GenericElementsAdmin extends React.Component {
     this.fetchRevisions = this.fetchRevisions.bind(this);
     this.handleCreateRepo = this.handleCreateRepo.bind(this);
     this.handleShowRepo = this.handleShowRepo.bind(this);
+    this.handleUploadKlass = this.handleUploadKlass.bind(this);
+    this.handleDownloadKlass = this.handleDownloadKlass.bind(this);
   }
 
   componentDidMount() {
@@ -225,6 +227,7 @@ export default class GenericElementsAdmin extends React.Component {
       });
   }
 
+
   handleActivateKlass(e) {
     const act = e.is_active ? 'De-activate' : 'Activate';
     LoadingActions.start();
@@ -253,7 +256,7 @@ export default class GenericElementsAdmin extends React.Component {
         LoadingActions.stop();
       });
   }
-
+  
   handleDeleteKlass(element) {
     if (element.is_active) {
       notification({
@@ -289,6 +292,62 @@ export default class GenericElementsAdmin extends React.Component {
           LoadingActions.stop();
         });
     }
+  }
+  
+  handleDownloadKlass(e) {
+    LoadingActions.start();
+    GenericKlassFetcher.downloadKlass(e.id, 'ElementKlass')
+      .then(result => {
+        LoadingActions.stop();
+      })
+      .finally(() => {
+        LoadingActions.stop();
+      });
+  }
+
+  handleUploadKlass(_response) {
+    const { elements } = this.state;
+    const { element, notify } = _response;
+    if (!notify.isSuccess) {
+      notification(notify);
+      return;
+    }
+    if (!validateInput(element)) return;
+    if (!validateKlass(element.name)) {
+      notification({
+        title: `Element [${element.name}]`,
+        lvl: 'error',
+        msg: 'This Element is invalid, please try a different one.',
+      });
+      return;
+    }
+    const existKlass = elements.filter(el => el.name === element.name && el.identifier !== element.identifier);
+    if (existKlass.length > 0) {
+      notification({
+        title: `Element [${element.name}]`,
+        lvl: 'error',
+        msg: 'This Element is already taken. The Element name must be unique. Please choose another one.',
+      });
+      return;
+    }
+    LoadingActions.start();
+    GenericElsFetcher.uploadKlass(element)
+      .then(result => {
+        if (result?.status === 'success') {
+          this.fetchElements();          
+        }
+        notification({
+          title: 'Upload Element',
+          lvl: result?.status || 'error',
+          msg: result?.message || 'Unknown error',
+        });
+      })
+      .catch(errorMessage => {
+        console.log(errorMessage);
+      })
+      .finally(() => {
+        LoadingActions.stop();
+      });
   }
 
   fetchRevisions(_element) {
@@ -382,6 +441,8 @@ export default class GenericElementsAdmin extends React.Component {
         fnActive={this.handleActivateKlass}
         fnDelete={this.handleDeleteKlass}
         fnUpdate={this.handleUpdateKlass}
+        fnUpload={this.handleUploadKlass}
+        fnDownload={this.handleDownloadKlass}
         preview={{
           fnDelRevisions: this.delRevision,
           fnRevisions: this.fetchRevisions,
@@ -396,15 +457,14 @@ export default class GenericElementsAdmin extends React.Component {
   render() {
     const { user } = this.state;
     if (!user.generic_admin?.elements) {
-      return <GenericAdminUnauth userName={user.name} text="GenericElements" />;
+      return <Unauthorized userName={user.name} text={FN_ID} />;
     }
 
     return (
       <div style={{ width: '90vw', margin: 'auto' }}>
-        <GenericAdminNav userName={user.name} text="GenericElements" />
-        <hr />
-        <div style={{ marginTop: '60px' }}>
-          <h3>Generic Elements Designer</h3>
+        <GenericMenu userName={user.name} text={FN_ID} />
+        <div>
+          <FunctionLocation name={FN_ID} />
           <SyncBtn
             data={this.state.repoData}
             fnCreate={this.handleCreateRepo}
@@ -425,7 +485,7 @@ export default class GenericElementsAdmin extends React.Component {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const domElement = document.getElementById('GenericElementsAdmin');
+  const domElement = document.getElementById(`${FN_ID}Admin`);
   if (domElement)
     ReactDOM.render(
       <DndProvider backend={HTML5Backend}>

@@ -1,15 +1,19 @@
-import React from 'react';
 import PropTypes from 'prop-types';
-import {
-  Alert, Button, Modal, SplitButton,
-  FormGroup, FormControl, MenuItem
-} from 'react-bootstrap';
-import 'whatwg-fetch';
 import Quagga from 'quagga';
+import React from 'react';
+import {
+  Alert, Button,
+  FormControl,
+  FormGroup,
+  MenuItem,
+  Modal, SplitButton
+} from 'react-bootstrap';
 import QrReader from 'react-qr-reader';
+import PrintCodeFetcher from 'src/fetchers/PrintCodeFetcher';
 import UIActions from 'src/stores/alt/actions/UIActions';
-import Utils from 'src/utilities/Functions';
 import UIStore from 'src/stores/alt/stores/UIStore';
+import Utils from 'src/utilities/Functions';
+import 'whatwg-fetch';
 
 export default class ScanCodeButton extends React.Component {
   constructor(props) {
@@ -19,7 +23,8 @@ export default class ScanCodeButton extends React.Component {
       showQrReader: false,
       scanError: null,
       scanInfo: null,
-      checkedIds: UIStore.getState().sample.checkedIds
+      checkedIds: UIStore.getState().sample.checkedIds,
+      json: {}
     };
 
     this.onUIStoreChange = this.onUIStoreChange.bind(this);
@@ -28,10 +33,22 @@ export default class ScanCodeButton extends React.Component {
     this.startBarcodeScan = this.startBarcodeScan.bind(this);
     this.startQrCodeScan = this.startQrCodeScan.bind(this);
     this.handleKeyPress = this.handleKeyPress.bind(this);
+    this.downloadPrintCodesPDF = this.downloadPrintCodesPDF.bind(this);
   }
 
-  componentDidMount() {
+  async componentDidMount() {
     UIStore.listen(this.onUIStoreChange);
+    // Import the file when the component mounts
+    try {
+      const response = await fetch('/json/printingConfig/defaultConfig.json');
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+      const tmpJson = await response.json();
+      this.setState({ json: tmpJson });
+    } catch (err) {
+      console.error('Failed to fetch JSON', err);
+    }
   }
 
   componentWillUnmount() {
@@ -64,10 +81,10 @@ export default class ScanCodeButton extends React.Component {
       decoder: {
         readers: ["code_128_reader"],
       }
-    }, function (err) {
+    }, function(err) {
       if (err) {
         console.log(err);
-        return
+        return;
       }
       console.log("Initialization finished. Ready to start");
       Quagga.start();
@@ -124,18 +141,18 @@ export default class ScanCodeButton extends React.Component {
       return;
     }
 
-    stopQuagga && Quagga.stop()
+    stopQuagga && Quagga.stop();
     fetch(`/api/v1/code_logs/generic?code=${data}`, {
       credentials: 'same-origin'
     })
       .then(response => response.json())
       .then(this.checkJSONResponse)
       .then((json) => {
-        code_log = json.code_log
+        code_log = json.code_log;
         if (code_log.source === 'container') {
           // open active analysis
           UIActions.selectTab({ tabKey: 1, type: code_log.root_code.source });
-          UIActions.selectActiveAnalysis(code_log.source_id);
+          UIActions.selectActiveAnalysis({ type: 'sample', analysisIndex: code_log.source_id });
           Aviator.navigate(`/collection/all/${code_log.root_code.source}/${code_log.root_code.source_id}`);
           this.close();
         } else {
@@ -219,22 +236,33 @@ export default class ScanCodeButton extends React.Component {
     return null;
   }
 
+  /**
+   * Downloads a PDF file with the print codes for the given element
+   */
+  downloadPrintCodesPDF(id, selectedConfig) {
+    const { json } = this.state;
+    let newUrl = `/api/v1/code_logs/print_codes?element_type=sample&ids[]=${id}`;
+    // build the URL by adding the selected config parameters
+    Object.entries(json).forEach(([configKey, configValue]) => {
+      if (configKey === selectedConfig) {
+        Object.entries(configValue).forEach(([key, value]) => {
+          newUrl += `&${key}=${value}`;
+        });
+      }
+    });
+    // fetch the PDF and download it
+    PrintCodeFetcher.fetchPrintCodes(newUrl).then((result) => {
+      if (result != null) {
+        Utils.downloadFile({ contents: result, name: `print_codes_${id}.pdf` });
+      }
+    });
+  }
+
   render() {
+    const { json } = this.state;
     const ids = this.state.checkedIds.toArray();
     const disabledPrint = !(ids.length > 0);
-    const contentsUri = `/api/v1/code_logs/print_codes?element_type=sample&ids[]=${ids}`;
-    const menuItems = [
-      {
-        key: 'smallCode',
-        contents: `${contentsUri}&size=small`,
-        text: 'Small Label',
-      },
-      {
-        key: 'bigCode',
-        contents: `${contentsUri}&size=big`,
-        text: 'Large Label',
-      },
-    ];
+    const menuItems = Object.entries(json).map(([key]) => ({ key, name: key }));
 
     const title = (
       <span className="fa-stack" style={{ top: -4 }} >
@@ -242,6 +270,7 @@ export default class ScanCodeButton extends React.Component {
         <i className="fa fa-search fa-stack-1x" style={{ left: 7 }} />
       </span>
     );
+
     const { customClass } = this.props;
     return (
       <div>
@@ -253,16 +282,16 @@ export default class ScanCodeButton extends React.Component {
           onClick={this.open}
           style={{ height: '34px' }}
         >
-          {menuItems.map(e => (
+          {menuItems.map((e) => (
             <MenuItem
               key={e.key}
               disabled={disabledPrint}
               onSelect={(eventKey, event) => {
                 event.stopPropagation();
-                Utils.downloadFile({ contents: e.contents });
+                ids.map((id) => this.downloadPrintCodesPDF(id, e.name));
               }}
             >
-              {e.text}
+              {e.name}
             </MenuItem>
           ))}
         </SplitButton>
@@ -272,7 +301,6 @@ export default class ScanCodeButton extends React.Component {
     );
   }
 }
-
 
 ScanCodeButton.propTypes = {
   customClass: PropTypes.string,

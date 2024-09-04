@@ -14,9 +14,12 @@ import {
   OverlayTrigger,
   Tooltip,
 } from 'react-bootstrap';
-import { findIndex } from 'lodash';
+import { findIndex, merge } from 'lodash';
 import Aviator from 'aviator';
-import { GenInterface, GenButtonReload } from 'chem-generic-ui';
+import Immutable from 'immutable';
+import {
+  GenInterface, GenButtonReload, GenButtonExport, GenButtonDrawflow, GenFlowViewerBtn
+} from 'chem-generic-ui';
 import DetailActions from 'src/stores/alt/actions/DetailActions';
 import LoadingActions from 'src/stores/alt/actions/LoadingActions';
 import ElementActions from 'src/stores/alt/actions/ElementActions';
@@ -28,11 +31,14 @@ import GenericElDetailsContainers from 'src/components/generic/GenericElDetailsC
 import GenericEl from 'src/models/GenericEl';
 import Attachment from 'src/models/Attachment';
 import CopyElementModal from 'src/components/common/CopyElementModal';
-import { notification, FlowViewerBtn, renderFlowModal } from 'src/apps/generic/Utils';
+import { notification, renderFlowModal } from 'src/apps/generic/Utils';
 import GenericAttachments from 'src/components/generic/GenericAttachments';
 import { SegmentTabs } from 'src/components/generic/SegmentDetails';
 import RevisionViewerBtn from 'src/components/generic/RevisionViewerBtn';
 import OpenCalendarButton from 'src/components/calendar/OpenCalendarButton';
+import ElementCollectionLabels from 'src/apps/mydb/elements/labels/ElementCollectionLabels';
+import ElementDetailSortTab from 'src/apps/mydb/elements/details/ElementDetailSortTab';
+import { EditUserLabels, ShowUserLabels } from 'src/components/UserLabels';
 
 const onNaviClick = (type, id) => {
   const { currentCollection, isSync } = UIStore.getState();
@@ -40,8 +46,16 @@ const onNaviClick = (type, id) => {
     ? `${currentCollection.id}/${type}/${id}`
     : `${currentCollection.id}/${type}`;
   Aviator.navigate(
-    isSync ? `/scollection/${collectionUrl}` : `/collection/${collectionUrl}`
+    isSync ? `/scollection/${collectionUrl}` : `/collection/${collectionUrl}`,
+    { silent: true },
   );
+  if (type === 'reaction') {
+    ElementActions.fetchReactionById(id);
+  } else if (type === 'sample') {
+    ElementActions.fetchSampleById(id);
+  } else {
+    ElementActions.fetchGenericElById(id);
+  }
 };
 
 export default class GenericElDetails extends Component {
@@ -50,9 +64,12 @@ export default class GenericElDetails extends Component {
     this.state = {
       genericEl: props.genericEl,
       activeTab: 0,
+      // List of all visible segment tabs.
+      visible: Immutable.List()
     };
     this.onChangeUI = this.onChangeUI.bind(this);
     this.onChangeElement = this.onChangeElement.bind(this);
+    this.onTabPositionChanged = this.onTabPositionChanged.bind(this);
     this.handleReload = this.handleReload.bind(this);
     this.handleAttachmentDrop = this.handleAttachmentDrop.bind(this);
     this.handleAttachmentDelete = this.handleAttachmentDelete.bind(this);
@@ -62,6 +79,7 @@ export default class GenericElDetails extends Component {
     this.handleGenericElChanged = this.handleGenericElChanged.bind(this);
     this.handleElChanged = this.handleElChanged.bind(this);
     this.handleSubmit = this.handleSubmit.bind(this);
+    this.handleExport = this.handleExport.bind(this);
   }
 
   componentDidMount() {
@@ -74,12 +92,21 @@ export default class GenericElDetails extends Component {
     ElementStore.unlisten(this.onChangeElement);
   }
 
+  /**
+   * Changes the visible segment tabs
+   * @param visible {Array} List of all visible segment tabs
+   */
+  onTabPositionChanged(visible) {
+    this.setState({ visible });
+  }
+
   onChangeElement(state) {
+    const { genericEl } = this.state;
     if (state.currentElement) {
       if (
-        state.currentElement !== this.state.genericEl &&
-        state.currentElement.klassType === 'GenericEl' &&
-        state.currentElement.type != null
+        state.currentElement !== genericEl
+        && state.currentElement.klassType === 'GenericEl'
+        && state.currentElement.type != null
       ) {
         this.setState({ genericEl: state.currentElement });
       }
@@ -87,18 +114,18 @@ export default class GenericElDetails extends Component {
   }
 
   onChangeUI(state) {
-    if (state[this.state.genericEl.type]) {
-      if (state[this.state.genericEl.type].activeTab !== this.state.activeTab) {
+    const { activeTab, genericEl } = this.state;
+    if (state[genericEl.type]) {
+      if (state[genericEl.type].activeTab !== activeTab) {
         this.setState({
-          activeTab: state[this.state.genericEl.type].activeTab,
+          activeTab: state[genericEl.type].activeTab,
         });
       }
     }
   }
 
   handleElChanged(el) {
-    let { genericEl } = this.state;
-    genericEl = el;
+    const genericEl = el;
     genericEl.changed = true;
     this.setState({ genericEl });
   }
@@ -126,7 +153,7 @@ export default class GenericElDetails extends Component {
   }
 
   handleReload(genericEl) {
-    this.setState({ genericEl });
+    this.setState({ genericEl }, () => ElementActions.setCurrentElement(genericEl));
   }
 
   handleSubmit(closeView = false) {
@@ -147,25 +174,24 @@ export default class GenericElDetails extends Component {
     // filter is_deleted analysis
     const { container } = genericEl;
 
-    let ais =
-      (container && container.children && container.children[0].children) || [];
-    ais = ais.filter(x => !x.is_deleted).map(x => x.id); // get ai is not deleted
-    (Object.keys(genericEl.properties.layers) || {}).forEach(key => {
+    let ais = (container && container.children && container.children[0].children) || [];
+    ais = ais.filter((x) => !x.is_deleted).map((x) => x.id); // get ai is not deleted
+    (Object.keys(genericEl.properties.layers) || {}).forEach((key) => {
       if (genericEl.properties.layers[key].ai) {
         genericEl.properties.layers[key].ai = genericEl.properties.layers[
           key
-        ].ai.filter(x => ais.includes(x));
+        ].ai.filter((x) => ais.includes(x));
       } else {
         genericEl.properties.layers[key].ai = [];
       }
       genericEl.properties.layers[key].fields = (
         genericEl.properties.layers[key].fields || []
-      ).map(f => {
+      ).map((f) => {
         const field = f;
         if (
-          field.type === 'text' &&
-          typeof field.value !== 'undefined' &&
-          field.value != null
+          field.type === 'text'
+          && typeof field.value !== 'undefined'
+          && field.value != null
         ) {
           field.value = field.value.trim();
         }
@@ -183,9 +209,14 @@ export default class GenericElDetails extends Component {
     return true;
   }
 
+  handleExport() {
+    const { genericEl } = this.state;
+    ElementActions.exportElement(genericEl, 'Element', 'docx');
+  }
+
   handleAttachmentDrop(files) {
     const { genericEl } = this.state;
-    files.map(file => genericEl.attachments.push(Attachment.fromFile(file)));
+    files.map((file) => genericEl.attachments.push(Attachment.fromFile(file)));
     // this.handleGenericElChanged(genericEl);
     this.handleElChanged(genericEl);
   }
@@ -200,7 +231,7 @@ export default class GenericElDetails extends Component {
 
   handleAttachmentEdit(attachment) {
     const { genericEl } = this.state;
-    genericEl.attachments.map(currentAttachment => {
+    genericEl.attachments.map((currentAttachment) => {
       if (currentAttachment.id === attachment.id) return attachment;
     });
     // this.handleGenericElChanged(genericEl);
@@ -213,7 +244,7 @@ export default class GenericElDetails extends Component {
     const { segments } = genericEl;
     const idx = findIndex(
       segments,
-      o => o.segment_klass_id === se.segment_klass_id
+      (o) => o.segment_klass_id === se.segment_klass_id
     );
     if (idx >= 0) {
       segments.splice(idx, 1, se);
@@ -229,7 +260,11 @@ export default class GenericElDetails extends Component {
   elementalToolbar(genericEl) {
     return (
       <ButtonToolbar style={{ margin: '5px 0px' }}>
-        <FlowViewerBtn generic={genericEl} />
+        <GenButtonExport
+          generic={genericEl}
+          fnExport={this.handleExport}
+        />
+        <GenFlowViewerBtn generic={genericEl} fnClick={renderFlowModal} />
         <RevisionViewerBtn
           fnRetrieve={this.handleRetrieveRevision}
           generic={genericEl}
@@ -238,6 +273,11 @@ export default class GenericElDetails extends Component {
           klass={genericEl.element_klass}
           generic={genericEl}
           fnReload={this.handleReload}
+        />
+        <GenButtonDrawflow
+          generic={genericEl}
+          genericType="Element"
+          fnSave={this.handleReload}
         />
       </ButtonToolbar>
     );
@@ -254,7 +294,7 @@ export default class GenericElDetails extends Component {
     });
     const lys = Object.keys(genericEl.properties.layers);
     const aiComs = {};
-    lys.forEach(x => {
+    lys.forEach((x) => {
       const ly = genericEl.properties.layers[x];
       const ai = ly.ai || [];
       if (ai.length < 1) {
@@ -289,12 +329,16 @@ export default class GenericElDetails extends Component {
       <div>
         <div>{this.elementalToolbar(genericEl)}</div>
         {layersLayout}
+        <EditUserLabels
+          element={genericEl}
+          fnCb={this.handleGenericElChanged}
+        />
       </div>
     );
   }
 
   propertiesTab(ind) {
-    const genericEl = this.state.genericEl || {};
+    const { genericEl = {} } = this.state;
     return (
       <Tab eventKey={ind} title="Properties" key={`Props_${genericEl.id}`}>
         {this.elementalPropertiesItem(genericEl)}
@@ -342,24 +386,20 @@ export default class GenericElDetails extends Component {
   }
 
   header(genericEl) {
-    const iconClass =
-      (genericEl.element_klass && genericEl.element_klass.icon_name) || '';
+    const { toggleFullScreen } = this.props;
+    const iconClass = (genericEl.element_klass && genericEl.element_klass.icon_name) || '';
     const { currentCollection } = UIStore.getState();
-    const defCol =
-      currentCollection &&
-      currentCollection.is_shared === false &&
-      currentCollection.is_locked === false &&
-      currentCollection.label !== 'All'
-        ? currentCollection.id
-        : null;
-    const copyBtn =
-      genericEl.can_copy && !genericEl.isNew ? (
-        <CopyElementModal element={genericEl} defCol={defCol} />
-      ) : null;
+    const defCol = currentCollection
+      && currentCollection.is_shared === false
+      && currentCollection.is_locked === false
+      && currentCollection.label !== 'All'
+      ? currentCollection.id : null;
+    const copyBtn = genericEl.can_copy && !genericEl.isNew ? (
+      <CopyElementModal element={genericEl} defCol={defCol} />
+    ) : null;
 
     const saveBtnDisplay = genericEl.changed && genericEl.can_update ? '' : 'none';
     const datetp = `Created at: ${genericEl.created_at} \n Updated at: ${genericEl.updated_at}`;
-
     return (
       <div>
         <OverlayTrigger
@@ -368,9 +408,13 @@ export default class GenericElDetails extends Component {
         >
           <span>
             <i className={iconClass} />
-            &nbsp;<span>{genericEl.short_label}</span> &nbsp;
+            &nbsp;
+            <span>{genericEl.short_label}</span>
+            &nbsp;
           </span>
         </OverlayTrigger>
+        {genericEl.isNew ? null : <ElementCollectionLabels element={genericEl} />}
+        <ShowUserLabels element={genericEl} />
         <ConfirmClose el={genericEl} />
         {copyBtn}
         <OverlayTrigger
@@ -381,7 +425,7 @@ export default class GenericElDetails extends Component {
             bsStyle="info"
             bsSize="xsmall"
             className="button-right"
-            onClick={() => this.props.toggleFullScreen()}
+            onClick={() => toggleFullScreen()}
           >
             <i className="fa fa-expand" aria-hidden="true" />
           </Button>
@@ -408,21 +452,41 @@ export default class GenericElDetails extends Component {
   }
 
   render() {
-    const { genericEl } = this.state;
+    const { genericEl, visible } = this.state;
     const submitLabel = genericEl && genericEl.isNew ? 'Create' : 'Save';
     // eslint-disable-next-line max-len
     const saveBtnDisplay = (genericEl?.isNew || (genericEl?.can_update && genericEl?.changed)) ? { display: '' } : { display: 'none' };
 
-    let tabContents = [
-      i => this.propertiesTab(i),
-      i => this.containersTab(i),
-      i => this.attachmentsTab(i),
-    ];
+    /**
+     *  tabContents is a object containing all (visible) segment tabs
+     */
+    let tabContents = {
+      properties: this.propertiesTab.bind(this),
+      analyses: this.containersTab.bind(this),
+      attachments: this.attachmentsTab.bind(this)
+    };
 
-    const tablen = tabContents.length;
-    const segTabs = SegmentTabs(genericEl, this.handleSegmentsChange, tablen);
-    tabContents = tabContents.concat(segTabs);
+    const segTabs = SegmentTabs(genericEl, this.handleSegmentsChange);
+    tabContents = merge(tabContents, segTabs);
 
+    const tabContentList = [];
+    const tabKeyContentList = [];
+
+    visible.forEach((value) => {
+      const tabContent = tabContents[value];
+      if (tabContent) {
+        tabKeyContentList.push(value);
+        tabContentList.push(tabContent(value));
+      }
+    });
+
+    const tabTitlesMap = {};
+
+    // Select 'activeTab' and ensure that it is visible
+    let activeTab = this.state.activeTab;
+    if (!tabKeyContentList.includes(activeTab) && tabKeyContentList.length > 0) {
+      activeTab = tabKeyContentList[0];
+    }
     return (
       <Panel
         className="panel-detail"
@@ -431,12 +495,19 @@ export default class GenericElDetails extends Component {
         <Panel.Heading>{this.header(genericEl)}</Panel.Heading>
         <Panel.Body>
           <ListGroup>
+            <ElementDetailSortTab
+              type={genericEl.type}
+              availableTabs={Object.keys(tabContents)}
+              tabTitles={tabTitlesMap}
+              onTabPositionChanged={this.onTabPositionChanged}
+              addInventoryTab={false}
+            />
             <Tabs
-              activeKey={this.state.activeTab}
-              onSelect={key => this.handleSelect(key, genericEl.type)}
+              activeKey={activeTab}
+              onSelect={(key) => this.handleSelect(key, genericEl.type)}
               id="GenericElementDetailsXTab"
             >
-              {tabContents.map((e, i) => e(i))}
+              {tabContentList}
             </Tabs>
           </ListGroup>
           <hr />

@@ -16,7 +16,7 @@ export default class SampleComputedProps extends React.Component {
   }
 
   UNSAFE_componentWillReceiveProps(nextProps) {
-    if (this.gridApi) this.gridApi.setRowData(nextProps.cprops);
+    if (this.gridApi) this.gridApi.setGridOption('rowData', nextProps.cprops);
   }
 
   onGridReady(params) {
@@ -119,9 +119,9 @@ export default class SampleComputedProps extends React.Component {
       <div className="ag-theme-balham">
         <AgGridReact
           onGridReady={this.onGridReady}
-          enableColResize
-          suppressCellSelection
+          suppressCellFocus
           columnDefs={columnDefs}
+          defaultColDef={{ resizable: true }}
           editable={false}
           rowData={cprops}
           domLayout="autoHeight"

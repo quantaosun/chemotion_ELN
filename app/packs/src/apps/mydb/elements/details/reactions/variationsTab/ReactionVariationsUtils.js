@@ -1,17 +1,38 @@
-import cloneDeep from 'lodash/cloneDeep';
+import { set, cloneDeep } from 'lodash';
 import { convertTemperature, convertDuration } from 'src/models/Reaction';
 import { metPreConv as convertAmount } from 'src/utilities/metricPrefix';
+import {
+  updateVariationsRowOnReferenceMaterialChange, getMaterialData
+} from 'src/apps/mydb/elements/details/reactions/variationsTab/ReactionVariationsMaterials';
 
 const temperatureUnits = ['°C', 'K', '°F'];
 const durationUnits = ['Second(s)', 'Minute(s)', 'Hour(s)', 'Day(s)', 'Week(s)'];
-const massUnits = ['mg', 'g', 'μg'];
-const volumeUnits = ['ml', 'l', 'μl'];
+const massUnits = ['g', 'mg', 'μg'];
+const volumeUnits = ['l', 'ml', 'μl'];
+const amountUnits = ['mol', 'mmol'];
 const materialTypes = {
   startingMaterials: { label: 'Starting Materials', reactionAttributeName: 'starting_materials' },
   reactants: { label: 'Reactants', reactionAttributeName: 'reactants' },
   products: { label: 'Products', reactionAttributeName: 'products' },
   solvents: { label: 'Solvents', reactionAttributeName: 'solvents' }
 };
+
+function getStandardUnit(entry) {
+  switch (entry) {
+    case 'volume':
+      return volumeUnits[0];
+    case 'mass':
+      return massUnits[0];
+    case 'amount':
+      return amountUnits[0];
+    case 'temperature':
+      return temperatureUnits[0];
+    case 'duration':
+      return durationUnits[0];
+    default:
+      return null;
+  }
+}
 
 function convertUnit(value, fromUnit, toUnit) {
   if (temperatureUnits.includes(fromUnit) && temperatureUnits.includes(toUnit)) {
@@ -28,47 +49,29 @@ function convertUnit(value, fromUnit, toUnit) {
     const amountUnitPrefixes = { l: 'n', ml: 'm', μl: 'u' };
     return convertAmount(value, amountUnitPrefixes[fromUnit], amountUnitPrefixes[toUnit]);
   }
+  if (amountUnits.includes(fromUnit) && amountUnits.includes(toUnit)) {
+    const amountUnitPrefixes = { mol: 'n', mmol: 'm' };
+    return convertAmount(value, amountUnitPrefixes[fromUnit], amountUnitPrefixes[toUnit]);
+  }
 
   return value;
 }
 
-function getMaterialData(material, materialType) {
-  const value = materialType === 'solvents' ? (material.amount_l ?? null) : (material.amount_g ?? null);
-  const unit = materialType === 'solvents' ? 'l' : 'g';
-  const aux = {
-    coefficient: material.coefficient ?? null,
-    isReference: material.reference ?? false,
-    loading: (Array.isArray(material.residues) && material.residues.length) ? material.residues[0].custom_info?.loading : null,
-    purity: material.purity ?? null,
-    molarity: material.molarity_value ?? null,
-    molecularWeight: material.molecule_molecular_weight ?? null,
-    sumFormula: material.molecule_formula ?? null,
-    yield: null,
-    equivalent: material.equivalent ?? null
-  };
-  return { value, unit, aux };
+function getCellDataType(entry) {
+  if (['temperature', 'duration'].includes(entry)) {
+    return 'property';
+  }
+  if (entry === 'equivalent') {
+    return 'equivalent';
+  }
+  if (['mass', 'volume', 'amount'].includes(entry)) {
+    return 'material';
+  }
+  return null;
 }
 
-function createVariationsRow(reaction, id) {
-  const { dispValue: durationValue = '', dispUnit: durationUnit = 'None' } = reaction.durationDisplay ?? {};
-  const { userText: temperatureValue = '', valueUnit: temperatureUnit = 'None' } = reaction.temperature ?? {};
-  const row = {
-    id,
-    properties: {
-      temperature: {
-        value: temperatureValue, unit: temperatureUnit
-      },
-      duration: {
-        value: durationValue, unit: durationUnit
-      }
-    },
-  };
-  Object.entries(materialTypes).forEach(([materialType, { reactionAttributeName }]) => {
-    row[materialType] = reaction[reactionAttributeName].reduce((a, v) => (
-      { ...a, [v.id]: getMaterialData(v, materialType) }), {});
-  });
-
-  return row;
+function getVariationsRowName(reactionLabel, variationsRowId) {
+  return `${reactionLabel}-${variationsRowId}`;
 }
 
 function getSequentialId(variations) {
@@ -76,121 +79,99 @@ function getSequentialId(variations) {
   return (ids.length === 0) ? 1 : Math.max(...ids) + 1;
 }
 
-function getMolFromGram(gram, material) {
-  if (material.aux.loading) {
-    return (material.aux.loading * gram) / 1e4;
-  }
+function createVariationsRow(reaction, variations) {
+  const reactionCopy = cloneDeep(reaction);
+  const { dispValue: durationValue = null, dispUnit: durationUnit = 'None' } = reactionCopy.durationDisplay ?? {};
+  const { userText: temperatureValue = null, valueUnit: temperatureUnit = 'None' } = reactionCopy.temperature ?? {};
+  let row = {
+    id: getSequentialId(variations),
+    properties: {
+      temperature: {
+        value: convertUnit(temperatureValue, temperatureUnit, getStandardUnit('temperature')),
+        unit: getStandardUnit('temperature')
+      },
+      duration: {
+        value: convertUnit(durationValue, durationUnit, getStandardUnit('duration')),
+        unit: getStandardUnit('duration'),
+      },
+    },
+    analyses: [],
+    notes: '',
+  };
+  Object.entries(materialTypes).forEach(([materialType, { reactionAttributeName }]) => {
+    row[materialType] = reactionCopy[reactionAttributeName].reduce((a, v) => (
+      { ...a, [v.id]: getMaterialData(v) }), {});
+  });
 
-  if (material.aux.molarity) {
-    const liter = (gram * material.aux.purity)
-      / (material.aux.molarity * material.aux.molecularWeight);
-    return liter * material.molarity;
-  }
-
-  return (gram * material.aux.purity) / material.aux.molecularWeight;
+  return updateVariationsRowOnReferenceMaterialChange(row, reactionCopy.has_polymers);
 }
 
-function getGramFromMol(mol, material) {
-  if (material.aux.loading) {
-    return (mol / material.aux.loading) * 1e4;
-  }
-  return (mol / (material.aux.purity ?? 1.0)) * material.aux.molecularWeight;
+function copyVariationsRow(row, variations) {
+  const copiedRow = cloneDeep(row);
+  copiedRow.id = getSequentialId(variations);
+  copiedRow.analyses = [];
+  copiedRow.notes = '';
+
+  return copiedRow;
 }
 
-function getReferenceMaterial(variationsRow) {
-  const potentialReferenceMaterials = { ...variationsRow.startingMaterials, ...variationsRow.reactants };
-  return Object.values(potentialReferenceMaterials).find((material) => {
-    if (material.aux) {
-      return material.aux.isReference;
+function updateVariationsRow(row, field, value, reactionHasPolymers) {
+  /*
+  Some attributes of a material need to be updated in response to changes in other attributes:
+
+  attribute  | needs to be updated in response to
+  -----------|----------------------------------
+  equivalent | own mass changes^, own amount changes^, reference material's mass changes~, reference material's amount changes~
+  mass       | own amount changes^, own equivalent changes^
+  amount     | own mass changes^, own equivalent changes^
+  yield      | own mass changes^, own amount changes^x, reference material's mass changes~, reference material's amount changes~
+
+  ^: handled in corresponding cell parsers (changes within single material)
+  ~: handled here (row-wide changes across materials)
+  x: not permitted according to business logic
+  */
+  let updatedRow = cloneDeep(row);
+  set(updatedRow, field, value);
+  if (value.aux?.isReference) {
+    updatedRow = updateVariationsRowOnReferenceMaterialChange(updatedRow, reactionHasPolymers);
+  }
+
+  return updatedRow;
+}
+
+function updateColumnDefinitions(columnDefinitions, field, property, newValue) {
+  const updatedColumnDefinitions = cloneDeep(columnDefinitions);
+
+  updatedColumnDefinitions.forEach((columnDefinition) => {
+    if (columnDefinition.groupId) {
+      // Column group.
+      columnDefinition.children.forEach((child) => {
+        if (child.field === field) {
+          child[property] = newValue;
+        }
+      });
+    } else if (columnDefinition.field === field) {
+      // Single column.
+      columnDefinition[property] = newValue;
     }
-    return false;
   });
-}
 
-function computeEquivalent(material, referenceMaterial) {
-  return getMolFromGram(convertUnit(material.value, material.unit, 'g'), material)
-  / getMolFromGram(convertUnit(referenceMaterial.value, referenceMaterial.unit, 'g'), referenceMaterial);
-}
-
-function updateYields(variations, reactionHasPolymers) {
-  const updatedVariations = cloneDeep(variations);
-  updatedVariations.forEach((row) => {
-    const referenceMaterial = getReferenceMaterial(row);
-    if (!referenceMaterial) { return; }
-
-    Object.entries(row.products).forEach(([productName, productMaterial]) => {
-      const stoichiometryCoefficient = (productMaterial.aux.coefficient ?? 1.0)
-    / (referenceMaterial.aux.coefficient ?? 1.0);
-      const equivalent = computeEquivalent(productMaterial, referenceMaterial, 'products')
-    / stoichiometryCoefficient;
-      const percentYield = reactionHasPolymers ? (equivalent * 100)
-        : ((equivalent <= 1 ? equivalent : 1) * 100);
-
-      row.products[productName].aux.yield = percentYield;
-    });
-  });
-  return updatedVariations;
-}
-
-function updateEquivalents(variations) {
-  const updatedVariations = cloneDeep(variations);
-  updatedVariations.forEach((row) => {
-    const referenceMaterial = getReferenceMaterial(row);
-    if (!referenceMaterial) { return; }
-
-    ['startingMaterials', 'reactants'].forEach((materialType) => {
-      Object.entries(row[materialType]).forEach(([materialName, material]) => {
-        if (material.aux.isReference) { return; }
-        row[materialType][materialName].aux.equivalent = computeEquivalent(material, referenceMaterial);
-      });
-    });
-  });
-  return updatedVariations;
-}
-
-function removeObsoleteMaterialsFromVariations(variations, currentMaterials) {
-  const updatedVariations = cloneDeep(variations);
-  updatedVariations.forEach((row) => {
-    Object.keys(materialTypes).forEach((materialType) => {
-      Object.keys(row[materialType]).forEach((materialName) => {
-        if (!currentMaterials[materialType].map((material) => material.id.toString()).includes(materialName)) {
-          delete row[materialType][materialName];
-        }
-      });
-    });
-  });
-  return updatedVariations;
-}
-
-function addMissingMaterialsToVariations(variations, currentMaterials) {
-  const updatedVariations = cloneDeep(variations);
-  updatedVariations.forEach((row) => {
-    Object.keys(materialTypes).forEach((materialType) => {
-      currentMaterials[materialType].forEach((material) => {
-        if (!(material.id in row[materialType])) {
-          row[materialType][material.id] = getMaterialData(material, materialType);
-        }
-      });
-    });
-  });
-  return updatedVariations;
+  return updatedColumnDefinitions;
 }
 
 export {
-  createVariationsRow,
-  removeObsoleteMaterialsFromVariations,
-  addMissingMaterialsToVariations,
-  updateYields,
-  updateEquivalents,
-  temperatureUnits,
-  durationUnits,
   massUnits,
   volumeUnits,
+  amountUnits,
+  temperatureUnits,
+  durationUnits,
   convertUnit,
+  getStandardUnit,
   materialTypes,
-  getGramFromMol,
-  getMolFromGram,
-  computeEquivalent,
-  getReferenceMaterial,
-  getSequentialId
+  getVariationsRowName,
+  createVariationsRow,
+  copyVariationsRow,
+  updateVariationsRow,
+  updateColumnDefinitions,
+  getCellDataType
 };

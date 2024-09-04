@@ -10,12 +10,12 @@ import Notifications from 'src/components/Notifications';
 import UsersFetcher from 'src/fetchers/UsersFetcher';
 import GenericSgsFetcher from 'src/fetchers/GenericSgsFetcher';
 import GenericElsFetcher from 'src/fetchers/GenericElsFetcher';
+import GenericKlassFetcher from 'src/fetchers/GenericKlassFetcher';
 import LoadingActions from 'src/stores/alt/actions/LoadingActions';
+import { FunctionLocation, GenericMenu, Unauthorized } from 'src/apps/generic/GenericUtils';
 import { notification, submit } from 'src/apps/generic/Utils';
-import {
-  GenericAdminNav,
-  GenericAdminUnauth,
-} from 'src/apps/generic/GenericAdminNav';
+
+const FN_ID = 'GenericSegments';
 
 const validateInput = element => {
   if (element.klass_element === '') {
@@ -63,20 +63,34 @@ export default class GenericSegmentsAdmin extends React.Component {
     this.handleCreateRepo = this.handleCreateRepo.bind(this);
     this.handleShowRepo = this.handleShowRepo.bind(this);
     this.fetchElementKlasses = this.fetchElementKlasses.bind(this);
+    this.handleUploadKlass = this.handleUploadKlass.bind(this);
+    this.handleDownloadKlass = this.handleDownloadKlass.bind(this);
   }
 
   componentDidMount() {
-    this.fetchElements();
-    this.fetchElementKlasses();
-    UsersFetcher.fetchCurrentUser()
-      .then(result => {
-        if (!result.error) {
-          this.setState({ user: result.user });
-        }
-      })
-      .catch(errorMessage => {
-        console.log(errorMessage);
-      });
+    const fetchData = async () => {
+      LoadingActions.start();
+      try {
+        const [segmentResult, klassResult, userResult] = await Promise.all([
+          GenericSgsFetcher.listSegmentKlass(),
+          GenericElsFetcher.fetchElementKlasses(),
+          UsersFetcher.fetchCurrentUser()
+        ]);
+
+        const klasses = klassResult.error ? [] : klassResult?.klass?.sort((a, b) => a.place - b.place) || [];
+        this.setState({
+          elements: segmentResult.error ? [] : segmentResult.klass,
+          klasses,
+          user: userResult.error ? {} : userResult.user
+        });
+      } catch (error) {
+        console.log(error);
+      } finally {
+        LoadingActions.stop();
+      }
+    };
+
+    fetchData();
   }
 
   getShowState(att, val) {
@@ -309,6 +323,45 @@ export default class GenericSegmentsAdmin extends React.Component {
     }
   }
 
+  handleDownloadKlass(e) {
+    LoadingActions.start();
+    GenericKlassFetcher.downloadKlass(e.id,'SegmentKlass')
+      .then(result => {
+        LoadingActions.stop();
+      })
+      .finally(() => {
+        LoadingActions.stop();
+      });
+  }
+
+  handleUploadKlass(_response) {
+    const { elements } = this.state;
+    const { element, notify } = _response;
+    if (!notify.isSuccess) {
+      notification(notify);
+      return;
+    }
+    if (!validateInput(element)) return;
+    LoadingActions.start();
+    GenericSgsFetcher.uploadKlass(element)
+      .then(result => {
+        if (result?.status === 'success') {
+          this.fetchElements();
+        }
+        notification({
+          title: 'Upload Segment',
+          lvl: result?.status || 'error',
+          msg: result?.message || 'Unknown error',
+        });
+      })
+      .catch(errorMessage => {
+        console.log(errorMessage);
+      })
+      .finally(() => {
+        LoadingActions.stop();
+      });
+  }
+
   fetchElements() {
     GenericSgsFetcher.listSegmentKlass().then(result => {
       this.setState({ elements: result.klass }, () => LoadingActions.stop());
@@ -349,6 +402,8 @@ export default class GenericSegmentsAdmin extends React.Component {
         fnActive={this.handleActivateKlass}
         fnDelete={this.handleDeleteKlass}
         fnUpdate={this.handleUpdateKlass}
+        fnUpload={this.handleUploadKlass}
+        fnDownload={this.handleDownloadKlass}
         genericType="Segment"
         gridData={els}
         klasses={this.state.klasses}
@@ -364,14 +419,13 @@ export default class GenericSegmentsAdmin extends React.Component {
   render() {
     const { user } = this.state;
     if (!user.generic_admin?.segments) {
-      return <GenericAdminUnauth userName={user.name} text="GenericSegments" />;
+      return <Unauthorized userName={user.name} text={FN_ID} />;
     }
     return (
       <div style={{ width: '90vw', margin: 'auto' }}>
-        <GenericAdminNav userName={user.name} text="GenericSegments" />
-        <hr />
-        <div style={{ marginTop: '60px' }}>
-          <h3>Generic Segments Designer</h3>
+        <GenericMenu userName={user.name} text={FN_ID} />
+        <div>
+          <FunctionLocation name={FN_ID} />
           <SyncBtn
             data={this.state.repoData}
             fnCreate={this.handleCreateRepo}
@@ -392,7 +446,7 @@ export default class GenericSegmentsAdmin extends React.Component {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const domElement = document.getElementById('GenericSegmentsAdmin');
+  const domElement = document.getElementById(`${FN_ID}Admin`);
   if (domElement)
     ReactDOM.render(
       <DndProvider backend={HTML5Backend}>

@@ -2,21 +2,30 @@
 /* eslint-disable react/forbid-prop-types */
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
-import { GenInterface, GenButtonReload } from 'chem-generic-ui';
+import {
+  GenInterface, GenButtonReload, GenButtonExport, GenFlowViewerBtn
+} from 'chem-generic-ui';
 import { Panel, ButtonToolbar } from 'react-bootstrap';
-import { FlowViewerBtn } from 'src/apps/generic/Utils';
+import { renderFlowModal } from 'src/apps/generic/Utils';
 import RevisionViewerBtn from 'src/components/generic/RevisionViewerBtn';
+import ElementActions from 'src/stores/alt/actions/ElementActions';
 
 class GenericSGDetails extends Component {
   constructor(props) {
     super(props);
     this.handleReload = this.handleReload.bind(this);
+    this.handleExport = this.handleExport.bind(this);
     this.handleRetrieveRevision = this.handleRetrieveRevision.bind(this);
   }
 
   handleReload(segment) {
     const { onChange } = this.props;
     onChange(segment);
+  }
+
+  handleExport() {
+    const { segment } = this.props;
+    ElementActions.exportElement(segment, 'Segment', 'docx');
   }
 
   handleRetrieveRevision(revision, cb) {
@@ -48,7 +57,11 @@ class GenericSGDetails extends Component {
     const { segment, klass } = this.props;
     return (
       <ButtonToolbar style={{ margin: '5px 0px' }}>
-        <FlowViewerBtn generic={segment} />
+        <GenButtonExport
+          generic={segment}
+          fnExport={this.handleExport}
+        />
+        <GenFlowViewerBtn generic={segment} fnClick={renderFlowModal} />
         <RevisionViewerBtn
           fnRetrieve={this.handleRetrieveRevision}
           generic={segment}

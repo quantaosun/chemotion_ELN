@@ -57,6 +57,8 @@
 
 # rubocop:disable Metrics/ClassLength
 class Sample < ApplicationRecord
+  attr_accessor :skip_inventory_label_update
+
   acts_as_paranoid
   include ElementUIStateScopes
   include PgSearch::Model
@@ -174,6 +176,7 @@ class Sample < ApplicationRecord
   after_save :update_counter
   after_create :create_root_container
   after_save :update_equivalent_for_reactions
+  after_save :update_gas_material
   after_save :update_svg_for_reactions, unless: :skip_reaction_svg_update?
 
   has_many :collections_samples, inverse_of: :sample, dependent: :destroy
@@ -350,6 +353,8 @@ class Sample < ApplicationRecord
   # rubocop:disable Layout/TrailingWhitespace
   def create_subsample user, collection_ids, copy_ea = false, type = nil
     subsample = self.dup
+    subsample.xref['inventory_label'] = nil
+    subsample.skip_inventory_label_update = true
     subsample.name = self.name if self.name.present?
     subsample.external_label = self.external_label if self.external_label.present?
 
@@ -465,7 +470,7 @@ class Sample < ApplicationRecord
       FileUtils.remove(src)
     end
     if svg.start_with?(/\s*\<\?xml/, /\s*\<svg/)
-      File.write(full_svg_path(svg_file_name), scrub(svg))
+      File.write(full_svg_path(svg_file_name), Chemotion::Sanitizer.scrub_svg(svg))
       self.sample_svg_file = svg_file_name
     end
     unless sample_svg_file =~ /\A[0-9a-f]{128}.svg\z/
@@ -559,7 +564,40 @@ class Sample < ApplicationRecord
     tag&.taggable_data&.fetch('user_labels', nil)
   end
 
-private
+  def detect_amount_type
+    condition = real_amount_value.nil? || real_amount_unit.nil?
+    return { 'value' => target_amount_value, 'unit' => target_amount_unit } if condition
+
+    { 'value' => real_amount_value, 'unit' => real_amount_unit }
+  end
+
+  def amount_mol
+    mol = nil
+    amount_value = detect_amount_type['value']
+    case detect_amount_type['unit']
+    when 'l'
+      mol = if has_molarity
+              amount_value * molarity_value
+            else
+              amount_value * density * 1000 * purity / molecule.molecular_weight
+            end
+    when 'mol'
+      mol = amount_value
+    when 'g'
+      mol = (amount_value * purity) / molecule.molecular_weight
+    end
+    mol
+  end
+
+  def update_inventory_label(inventory_label, collection_id = nil)
+    return if collection_id.blank? || skip_inventory_label_update
+    return unless (inventory = Inventory.by_collection_id(collection_id).first)
+    return if inventory_label.present? && !inventory.match_inventory_counter(inventory_label)
+
+    self['xref']['inventory_label'] = inventory.label if inventory.update_incremented_counter
+  end
+
+  private
 
   def has_collections
     if self.collections_samples.blank?
@@ -651,6 +689,7 @@ private
     end
   end
 
+
   # rubocop: enable Metrics/AbcSize
   # rubocop: enable Metrics/CyclomaticComplexity
   # rubocop: enable Metrics/PerceivedComplexity
@@ -703,21 +742,28 @@ private
     density.present? && density.positive? && (!molarity_value.present? || molarity_value.zero?)
   end
 
-  def scrub(value)
-    Loofah::HTML5::SafeList::ALLOWED_ATTRIBUTES.add('overflow')
-    # NB: successiv gsub seems to be faster than a single gsub with a regexp with multiple matches
-    Loofah.scrub_fragment(value, :strip).to_s
-          .gsub('viewbox', 'viewBox')
-          .gsub('lineargradient', 'linearGradient')
-          .gsub('radialgradient', 'radialGradient')
-#   value
-  end
-
   # build a full path of the sample svg, nil if not buildable
   def full_svg_path(svg_file_name = sample_svg_file)
     return unless svg_file_name
 
     Rails.public_path.join('images', 'samples', svg_file_name)
+  end
+
+  def update_gas_material
+    rel_reaction_id = reactions_samples.first&.reaction_id
+    gas_type = reactions_samples.first&.gas_type
+    return unless rel_reaction_id && gas_type == 'catalyst'
+
+    catalyst_mol_value = amount_mol
+    return if catalyst_mol_value.nil?
+
+    ReactionsSample.where(
+      reaction_id: rel_reaction_id,
+      gas_type: 3,
+      type: %w[ReactionsProductSample],
+    ).find_each do |material|
+      material.update_gas_material(catalyst_mol_value)
+    end
   end
 end
 # rubocop:enable Metrics/ClassLength

@@ -75,6 +75,11 @@ import CommentSection from 'src/components/comments/CommentSection';
 import CommentActions from 'src/stores/alt/actions/CommentActions';
 import CommentModal from 'src/components/common/CommentModal';
 import { formatTimeStampsOfElement } from 'src/utilities/timezoneHelper';
+import { commentActivation } from 'src/utilities/CommentHelper';
+import PrivateNoteElement from 'src/apps/mydb/elements/details/PrivateNoteElement';
+import MolViewerBtn from 'src/components/viewer/MolViewerBtn';
+import MolViewerSet from 'src/components/viewer/MolViewerSet';
+
 
 const MWPrecision = 6;
 
@@ -110,6 +115,9 @@ const rangeCheck = (field, sample) => {
 export default class SampleDetails extends React.Component {
   constructor(props) {
     super(props);
+
+    const currentUser = (UserStore.getState() && UserStore.getState().currentUser) || {};
+
     this.state = {
       sample: props.sample,
       reaction: null,
@@ -133,12 +141,14 @@ export default class SampleDetails extends React.Component {
       startExport: false,
       sfn: UIStore.getState().hasSfn,
       saveInventoryAction: false,
+      isChemicalEdited: false,
+      currentUser,
     };
 
-    const currentUser = (UserStore.getState() && UserStore.getState().currentUser) || {};
     this.enableComputedProps = MatrixCheck(currentUser.matrix, 'computedProp');
     this.enableSampleDecoupled = MatrixCheck(currentUser.matrix, 'sampleDecoupled');
     this.enableNmrSim = MatrixCheck(currentUser.matrix, 'nmrSim');
+    this.enableMoleculeViewer = MatrixCheck(currentUser.matrix, MolViewerSet.PK);
 
     this.onUIStoreChange = this.onUIStoreChange.bind(this);
     this.clipboard = new Clipboard('.clipboardBtn');
@@ -156,6 +166,7 @@ export default class SampleDetails extends React.Component {
     this.handleSegmentsChange = this.handleSegmentsChange.bind(this);
     this.decoupleChanged = this.decoupleChanged.bind(this);
     this.handleFastInput = this.handleFastInput.bind(this);
+    this.matchSelectedCollection = this.matchSelectedCollection.bind(this);
 
     this.handleStructureEditorSave = this.handleStructureEditorSave.bind(this);
     this.handleStructureEditorCancel = this.handleStructureEditorCancel.bind(this);
@@ -163,10 +174,14 @@ export default class SampleDetails extends React.Component {
 
   componentDidMount() {
     const { sample } = this.props;
+    const { currentUser } = this.state;
+
     UIStore.listen(this.onUIStoreChange);
+
     const { activeTab } = this.state;
     this.fetchQcWhenNeeded(activeTab);
-    if (!sample.isNew) {
+
+    if (MatrixCheck(currentUser.matrix, commentActivation) && !sample.isNew) {
       CommentActions.fetchComments(sample);
     }
   }
@@ -334,8 +349,12 @@ export default class SampleDetails extends React.Component {
   }
 
   handleSubmit(closeView = false) {
+    const { currentCollection } = UIStore.getState();
     LoadingActions.start.defer();
     const { sample, validCas } = this.state;
+    if (this.matchSelectedCollection(currentCollection) && sample.xref.inventory_label !== undefined) {
+      sample.collection_id = currentCollection.id;
+    }
     this.checkMolfileChange();
     if (!validCas) {
       sample.xref = { ...sample.xref, cas: '' };
@@ -426,6 +445,17 @@ export default class SampleDetails extends React.Component {
     }
   }
 
+  /* eslint-disable camelcase */
+  matchSelectedCollection(currentCollection) {
+    const { sample } = this.props;
+    if (sample.isNew) {
+      return true;
+    }
+    const { collection_labels } = sample.tag?.taggable_data || [];
+    const result = collection_labels.filter((object) => object.id === currentCollection.id).length > 0;
+    return result;
+  }
+
   sampleFooter() {
     const { sample, startExport } = this.state;
     const belongToReaction = sample.belongTo && sample.belongTo.type === 'reaction';
@@ -481,6 +511,10 @@ export default class SampleDetails extends React.Component {
     }
   }
 
+  editChemical = (boolean) => {
+    this.setState({ isChemicalEdited: boolean });
+  };
+
   sampleInventoryTab(ind) {
     const sample = this.state.sample || {};
     const { saveInventoryAction } = this.state;
@@ -495,6 +529,7 @@ export default class SampleDetails extends React.Component {
             sample={sample}
             parent={this}
             saveInventory={saveInventoryAction}
+            editChemical={this.editChemical}
             key={`ChemicalTab${sample.id.toString()}`}
           />
         </ListGroupItem>
@@ -819,9 +854,14 @@ export default class SampleDetails extends React.Component {
             decoupleMolecule={this.decoupleMolecule}
           />
         </ListGroupItem>
-        <EditUserLabels element={sample} />
-        {this.elementalPropertiesItem(sample)}
         {this.chemicalIdentifiersItem(sample)}
+        <div style={{ marginTop: '10px' }}>
+          <EditUserLabels element={sample} fnCb={this.handleSampleChanged} />
+        </div>
+        {this.elementalPropertiesItem(sample)}
+        <div style={{ marginTop: '10px' }}>
+          <PrivateNoteElement element={sample} disabled={!sample.can_update} />
+        </div>
       </Tab>
     );
   }
@@ -925,9 +965,74 @@ export default class SampleDetails extends React.Component {
     this.setState({ sample });
   }
 
+  saveButton(sampleUpdateCondition, saveBtnDisplay, floppyTag, timesTag, boolean = false) {
+    return (
+      <Button
+        bsStyle="warning"
+        bsSize="xsmall"
+        className="button-right"
+        onClick={() => this.saveSampleOrInventory(boolean)}
+        style={{ display: saveBtnDisplay }}
+        disabled={sampleUpdateCondition}
+      >
+        {floppyTag}
+        {timesTag || null}
+      </Button>
+    );
+  }
+
+  saveAndCloseSample(sample, saveBtnDisplay) {
+    const { activeTab, isChemicalEdited } = this.state;
+    const isChemicalTab = activeTab === 'inventory';
+    const floppyTag = (
+      <i className="fa fa-floppy-o" />
+    );
+    const timesTag = (
+      <i className="fa fa-times" />
+    );
+    const sampleUpdateCondition = !this.sampleIsValid() || !sample.can_update;
+
+    const elementToSave = activeTab === 'inventory' ? 'Chemical' : 'Sample';
+    const saveAndClose = (
+      <OverlayTrigger
+        placement="bottom"
+        overlay={(
+          <Tooltip id="saveCloseSample">
+            {`Save and Close ${elementToSave}`}
+          </Tooltip>
+        )}
+      >
+        {this.saveButton(sampleUpdateCondition, saveBtnDisplay, floppyTag, timesTag, true)}
+      </OverlayTrigger>
+    );
+    const save = (
+      <OverlayTrigger
+        placement="bottom"
+        overlay={(
+          <Tooltip id="saveSample">
+            {`Save ${elementToSave}`}
+          </Tooltip>
+        )}
+      >
+        {this.saveButton(sampleUpdateCondition, saveBtnDisplay, floppyTag)}
+      </OverlayTrigger>
+    );
+
+    const saveForChemical = isChemicalTab && isChemicalEdited ? save : null;
+    return (
+      <div>
+        <ConfirmClose el={sample} />
+        { isChemicalTab ? null : saveAndClose }
+        { isChemicalTab ? saveForChemical : save}
+      </div>
+    );
+  }
+
   sampleHeader(sample) {
-    const saveBtnDisplay = sample.isEdited ? '' : 'none';
+    const { isChemicalEdited, activeTab } = this.state;
     const titleTooltip = formatTimeStampsOfElement(sample || {});
+    const isChemicalTab = activeTab === 'inventory';
+    const saveBtnDisplay = sample.isEdited || (isChemicalEdited && isChemicalTab) ? '' : 'none';
 
     const { currentCollection } = UIStore.getState();
     const defCol = currentCollection && currentCollection.is_shared === false
@@ -972,7 +1077,7 @@ export default class SampleDetails extends React.Component {
           </OverlayTrigger>
           <ShowUserLabels element={sample} />
           <ElementAnalysesLabels element={sample} key={`${sample.id}_analyses`} />
-          {colLabel}
+          <div style={{ marginTop: '-5px' }}>{colLabel}</div>
           <ElementReactionLabels element={sample} key={`${sample.id}_reactions`} />
           <PubchemLabels element={sample} />
           <HeaderCommentSection element={sample} />
@@ -980,61 +1085,31 @@ export default class SampleDetails extends React.Component {
             ? <FastInput fnHandle={this.handleFastInput} />
             : null}
         </div>
-        <div style={{ marginLeft: 'auto' }}>
-          <ConfirmClose el={sample} />
-          <OverlayTrigger
-            placement="bottom"
-            overlay={<Tooltip id="saveCloseSample">Save and Close Sample</Tooltip>}
-          >
-            <Button
-              bsStyle="warning"
-              bsSize="xsmall"
-              className="button-right"
-              onClick={() => this.handleSubmit(true)}
-              style={{ display: saveBtnDisplay }}
-              disabled={!this.sampleIsValid() || !sample.can_update}
+        <div style={{ marginLeft: 'auto', display: 'flex', justifyContent: 'space-between' }}>
+          <div>
+            {copyBtn}
+            <OverlayTrigger
+              placement="bottom"
+              overlay={<Tooltip id="fullSample">FullScreen</Tooltip>}
             >
-              <i className="fa fa-floppy-o" />
-              <i className="fa fa-times" />
-            </Button>
-          </OverlayTrigger>
-          <OverlayTrigger
-            placement="bottom"
-            overlay={<Tooltip id="saveSample">Save Sample</Tooltip>}
-          >
-            <Button
-              bsStyle="warning"
-              bsSize="xsmall"
-              className="button-right"
-              onClick={() => this.handleSubmit()}
-              style={{ display: saveBtnDisplay }}
-              disabled={!this.sampleIsValid() || !sample.can_update}
-            >
-              <i className="fa fa-floppy-o" />
-            </Button>
-          </OverlayTrigger>
-          {copyBtn}
-          <OverlayTrigger
-            placement="bottom"
-            overlay={<Tooltip id="fullSample">FullScreen</Tooltip>}
-          >
-            <Button
-              bsStyle="info"
-              bsSize="xsmall"
-              className="button-right"
-              onClick={() => this.props.toggleFullScreen()}
-            >
-              <i className="fa fa-expand" />
-            </Button>
-          </OverlayTrigger>
-          <PrintCodeButton element={sample} />
-          {sample.isNew
-            ? null
-            : <OpenCalendarButton isPanelHeader eventableId={sample.id} eventableType="Sample" />}
-          {inventorySample}
-          {decoupleCb}
+              <Button
+                bsStyle="info"
+                bsSize="xsmall"
+                className="button-right"
+                onClick={() => this.props.toggleFullScreen()}
+              >
+                <i className="fa fa-expand" />
+              </Button>
+            </OverlayTrigger>
+            <PrintCodeButton element={sample} />
+            {sample.isNew
+              ? null
+              : <OpenCalendarButton isPanelHeader eventableId={sample.id} eventableType="Sample" />}
+            {inventorySample}
+            {decoupleCb}
+          </div>
+          {this.saveAndCloseSample(sample, saveBtnDisplay)}
         </div>
-        <ShowUserLabels element={sample} />
       </div>
     );
   }
@@ -1341,21 +1416,37 @@ export default class SampleDetails extends React.Component {
     return (
       sample.can_update
         ? (
-          <div
-            className={className}
-            onClick={this.showStructureEditor.bind(this)}
-            onKeyPress
-            role="button"
-            tabIndex="0"
-
-          >
-            <Glyphicon className="pull-right" glyph="pencil" />
-            <SVG key={svgPath} src={svgPath} className="molecule-mid" />
-          </div>
+          <>
+            <div
+              className={className}
+              style={{ position: 'relative' }}
+              onClick={this.showStructureEditor.bind(this)}
+              onKeyPress={this.showStructureEditor.bind(this)}
+              role="button"
+              tabIndex="0"
+            >
+              <Glyphicon className="pull-right" glyph="pencil" />
+              <SVG key={svgPath} src={svgPath} className="molecule-mid" />
+            </div>
+            <MolViewerBtn
+              className="structure-editor-container"
+              disabled={sample.isNew || !this.enableMoleculeViewer}
+              fileContent={sample.molfile}
+              isPublic={false}
+              viewType={`mol_${sample.id}`}
+            />
+          </>
         )
         : (
           <div className={className}>
             <SVG key={svgPath} src={svgPath} className="molecule-mid" />
+            <MolViewerBtn
+              className="structure-editor-container"
+              disabled={sample.isNew || !this.enableMoleculeViewer}
+              fileContent={sample.molfile}
+              isPublic={false}
+              viewType={`mol_${sample.id}`}
+            />
           </div>
         )
     );
@@ -1421,6 +1512,7 @@ export default class SampleDetails extends React.Component {
     sample.decoupled = e.target.checked;
     if (!sample.decoupled) {
       sample.sum_formula = '';
+      sample.molecular_mass = null;
     } else {
       if (sample.sum_formula?.trim() === '') sample.sum_formula = 'undefined structure';
       if (sample.residues && sample.residues[0] && sample.residues[0].custom_info) {
@@ -1482,7 +1574,7 @@ export default class SampleDetails extends React.Component {
 
   render() {
     const sample = this.state.sample || {};
-    const { visible } = this.state;
+    const { visible, isChemicalEdited } = this.state;
     const tabContentsMap = {
       properties: this.samplePropertiesTab('properties'),
       analyses: this.sampleContainerTab('analyses'),
@@ -1567,7 +1659,7 @@ export default class SampleDetails extends React.Component {
     return (
       <Panel
         className="eln-panel-detail"
-        bsStyle={sample.isPendingToSave ? 'info' : 'primary'}
+        bsStyle={sample.isPendingToSave || isChemicalEdited ? 'info' : 'primary'}
       >
         <Panel.Heading>
           {this.sampleHeader(sample)}

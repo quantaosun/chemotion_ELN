@@ -23,6 +23,7 @@ import Utils from 'src/utilities/Functions';
 import PrintCodeButton from 'src/components/common/PrintCodeButton';
 import UIStore from 'src/stores/alt/stores/UIStore';
 import UIActions from 'src/stores/alt/actions/UIActions';
+import UserStore from 'src/stores/alt/stores/UserStore';
 import { setReactionByType } from 'src/apps/mydb/elements/details/reactions/ReactionDetailsShare';
 import { sampleShowOrNew } from 'src/utilities/routesUtils';
 import ReactionSvgFetcher from 'src/fetchers/ReactionSvgFetcher';
@@ -36,11 +37,17 @@ import Immutable from 'immutable';
 import ElementDetailSortTab from 'src/apps/mydb/elements/details/ElementDetailSortTab';
 import ScifinderSearch from 'src/components/scifinder/ScifinderSearch';
 import OpenCalendarButton from 'src/components/calendar/OpenCalendarButton';
+import MatrixCheck from 'src/components/common/MatrixCheck';
 import HeaderCommentSection from 'src/components/comments/HeaderCommentSection';
 import CommentSection from 'src/components/comments/CommentSection';
 import CommentActions from 'src/stores/alt/actions/CommentActions';
 import CommentModal from 'src/components/common/CommentModal';
+import { commentActivation } from 'src/utilities/CommentHelper';
 import { formatTimeStampsOfElement } from 'src/utilities/timezoneHelper';
+import ToggleButton from 'src/components/common/ToggleButton';
+import GasPhaseReactionActions from 'src/stores/alt/actions/GasPhaseReactionActions';
+import { ShowUserLabels } from 'src/components/UserLabels';
+
 
 export default class ReactionDetails extends Component {
   constructor(props) {
@@ -51,8 +58,10 @@ export default class ReactionDetails extends Component {
       reaction: reaction,
       literatures: reaction.literatures,
       activeTab: UIStore.getState().reaction.activeTab,
+      activeAnalysisTab: UIStore.getState().reaction.activeAnalysisTab,
       visible: Immutable.List(),
       sfn: UIStore.getState().hasSfn,
+      currentUser: (UserStore.getState() && UserStore.getState().currentUser) || {},
     };
 
     // remarked because of #466 reaction load image issue (Paggy 12.07.2018)
@@ -65,6 +74,7 @@ export default class ReactionDetails extends Component {
     this.handleSubmit = this.handleSubmit.bind(this);
     this.onTabPositionChanged = this.onTabPositionChanged.bind(this);
     this.handleSegmentsChange = this.handleSegmentsChange.bind(this);
+    this.handleGaseousChange = this.handleGaseousChange.bind(this);
     if (!reaction.reaction_svg_file) {
       this.updateReactionSvg();
     }
@@ -72,8 +82,14 @@ export default class ReactionDetails extends Component {
 
   componentDidMount() {
     const { reaction } = this.props;
+    const { currentUser } = this.state;
+
     UIStore.listen(this.onUIStoreChange);
-    if (!reaction.isNew) {
+    setTimeout(() => {
+      GasPhaseReactionActions.gaseousReaction(reaction.gaseous);
+    }, 0);
+
+    if (MatrixCheck(currentUser.matrix, commentActivation) && !reaction.isNew) {
       CommentActions.fetchComments(reaction);
     }
   }
@@ -92,16 +108,22 @@ export default class ReactionDetails extends Component {
   }
 
   shouldComponentUpdate(nextProps, nextState) {
-    const nextReaction = nextProps.reaction;
+    const reactionFromNextProps = nextProps.reaction;
+    const reactionFromNextState = nextState.reaction;
     const nextActiveTab = nextState.activeTab;
+    const nextActiveAnalysisTab = nextState.activeAnalysisTab;
     const nextVisible = nextState.visible;
-    const { reaction, activeTab, visible } = this.state;
+    const {
+      reaction: reactionFromCurrentState, activeTab, visible, activeAnalysisTab
+    } = this.state;
     return (
-      nextReaction.id !== reaction.id ||
-      nextReaction.updated_at !== reaction.updated_at ||
-      nextReaction.reaction_svg_file !== reaction.reaction_svg_file ||
-      !!nextReaction.changed || !!nextReaction.editedSample ||
-      nextActiveTab !== activeTab || nextVisible !== visible
+      reactionFromNextProps.id !== reactionFromCurrentState.id ||
+      reactionFromNextProps.updated_at !== reactionFromCurrentState.updated_at ||
+      reactionFromNextProps.reaction_svg_file !== reactionFromCurrentState.reaction_svg_file ||
+      !!reactionFromNextProps.changed || !!reactionFromNextProps.editedSample ||
+      nextActiveTab !== activeTab || nextVisible !== visible ||
+      nextActiveAnalysisTab !== activeAnalysisTab
+      || reactionFromNextState !== reactionFromCurrentState
     );
   }
 
@@ -110,9 +132,11 @@ export default class ReactionDetails extends Component {
   }
 
   onUIStoreChange(state) {
-    if (state.reaction.activeTab != this.state.activeTab) {
+    if (state.reaction.activeTab != this.state.activeTab ||
+      state.reaction.activeAnalysisTab !== this.state.activeAnalysisTab) {
       this.setState({
-        activeTab: state.reaction.activeTab
+        activeTab: state.reaction.activeTab,
+        activeAnalysisTab: state.reaction.activeAnalysisTab
       });
     }
   }
@@ -153,7 +177,8 @@ export default class ReactionDetails extends Component {
       || type === 'description' || type === 'role'
       || type === 'observation' || type === 'durationUnit'
       || type === 'duration' || type === 'rxno'
-      || type === 'variations') {
+      || type === 'vesselSizeAmount' || type === 'vesselSizeUnit'
+      || type === 'gaseous') {
       value = event;
     } else if (type === 'rfValue') {
       value = rfValueFormat(event.target.value) || '';
@@ -200,6 +225,7 @@ export default class ReactionDetails extends Component {
 
   productData(reaction) {
     const { products } = this.state.reaction;
+    const { activeAnalysisTab } = this.state;
 
     const tabs = products.map((product, key) => {
       const title = this.productLink(product);
@@ -228,6 +254,8 @@ export default class ReactionDetails extends Component {
         id="data-detail-tab"
         style={{ marginTop: '10px' }}
         unmountOnExit
+        activeKey={activeAnalysisTab}
+        onSelect={this.handleSelectActiveAnalysisTab.bind(this)}
       >
         {tabs}
         <Tab eventKey={4.1} title={reactionTab}>
@@ -350,6 +378,7 @@ export default class ReactionDetails extends Component {
         <div style={{ display: "inline-block", marginLeft: "10px" }}>
           {colLabel}
           {rsPlanLabel}
+          <ShowUserLabels element={reaction} />
           <ElementAnalysesLabels element={reaction} key={reaction.id + "_analyses"} />
           <HeaderCommentSection element={reaction} />
         </div>
@@ -365,6 +394,13 @@ export default class ReactionDetails extends Component {
     UIActions.selectTab({ tabKey: key, type: 'reaction' });
     this.setState({
       activeTab: key
+    });
+  }
+
+  handleSelectActiveAnalysisTab(key) {
+    UIActions.selectActiveAnalysisTab(key);
+    this.setState({
+      activeAnalysisTab: key
     });
   }
 
@@ -406,12 +442,57 @@ export default class ReactionDetails extends Component {
     this.setState({ reaction });
   }
 
+  handleGaseousChange() {
+    const { reaction } = this.state;
+    this.handleInputChange('gaseous', !reaction.gaseous);
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  updateReactionVesselSize(reaction) {
+    Promise.resolve().then(() => {
+      const { catalystMoles, vesselSize } = reaction.findReactionVesselSizeCatalystMaterialValues();
+
+      if (vesselSize) {
+        GasPhaseReactionActions.setReactionVesselSize(vesselSize);
+      }
+
+      if (catalystMoles) {
+        GasPhaseReactionActions.setCatalystReferenceMole(catalystMoles);
+      }
+
+      if (!vesselSize) {
+        GasPhaseReactionActions.setReactionVesselSize(null);
+      }
+
+      if (!catalystMoles) {
+        GasPhaseReactionActions.setCatalystReferenceMole(null);
+      }
+    });
+  }
+
   render() {
     const { reaction } = this.state;
     const { visible } = this.state;
+    this.updateReactionVesselSize(reaction);
+    const schemeTitle = reaction ? (
+      <div style={{ display: 'flex' }}>
+        <div style={{ paddingRight: '2px' }}>
+          <ToggleButton
+            isToggledInitial={reaction.gaseous}
+            onToggle={this.handleGaseousChange}
+            onLabel="Gas Scheme"
+            offLabel="Default Scheme"
+            onColor="#afcfee"
+            offColor="#d3d3d3"
+            tooltipOn="Click to enable Default mode"
+            tooltipOff="Click to enable Gas mode"
+          />
+        </div>
+      </div>
+    ) : 'Scheme';
     const tabContentsMap = {
       scheme: (
-        <Tab eventKey="scheme" title="Scheme" key={`scheme_${reaction.id}`}>
+        <Tab eventKey="scheme" title={schemeTitle} key={`scheme_${reaction.id}`}>
           {
             !reaction.isNew && <CommentSection section="reaction_scheme" element={reaction} />
           }
@@ -470,7 +551,7 @@ export default class ReactionDetails extends Component {
         <Tab eventKey="variations" title="Variations" key={`variations_${reaction.id}`} unmountOnExit={false}>
           <ReactionVariations
             reaction={reaction}
-            onEditVariations={(event) => this.handleInputChange('variations', event)}
+            onReactionChange={this.handleReactionChange}
           />
         </Tab>
       )

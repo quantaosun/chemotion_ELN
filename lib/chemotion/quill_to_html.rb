@@ -5,23 +5,29 @@ require 'meta_schmooze'
 
 module Chemotion
   class QuillToHtml < MetaSchmooze
+    extend QuillUtils
     def initialize(schmooze_methods: {}, schmooze_dependencies: {}, root: Rails.root.to_s, env: {}, var: {})
       super
       @root = root
       @env = env
       @schmooze_dependencies = schmooze_dependencies.merge(delta: 'quill-delta-to-html')
       @schmooze_methods = schmooze_methods.merge(
-        convert: lambda { |delta_ops = []|
-          delta_ops = JSON.parse delta_ops if delta_ops.is_a?(String)
-          delta_ops = case delta_ops.class.name
-                      when 'Array'
-                        delta_ops.to_json
-                      when 'Hash', 'ActiveSupport::HashWithIndifferentAccess'
-                        delta_ops.fetch('ops', []).to_json
-                      else
-                        '[]'
-                      end
-          return "function(){  var converter = new delta(#{delta_ops}, {});  return converter.convert(); } "
+        convert: lambda { |delta_ops = '[]'|
+          <<~FUNCTION
+            function(){
+              var converter = new delta(#{delta_ops.presence || '[]'}, {});
+              return converter.convert();
+            }
+          FUNCTION
+        },
+        convert_from_file: lambda { |file_path|
+          <<~FUNCTION
+            function(){
+              var input = JSON.parse(fs.readFileSync('#{file_path}', 'utf8'));
+              var converter = new delta(input, {});
+              return converter.convert();
+            }
+          FUNCTION
         },
       )
       compose_schmooze_class

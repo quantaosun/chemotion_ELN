@@ -22,6 +22,8 @@ module Entities
       expose :comments,                                     using: 'Entities::CommentEntity'
       expose :comment_count
       expose :dry_solvent
+      expose! :gas_type
+      expose! :gas_phase_data
     end
 
     # Level 1 attributes
@@ -86,10 +88,6 @@ module Entities
       options[:policy].try(:update?) || false
     end
 
-    def can_copy
-      options[:policy].try(:copy?) || false
-    end
-
     def can_publish
       options[:policy].try(:destroy?) || false
     end
@@ -136,6 +134,14 @@ module Entities
 
     def comment_count
       object.comments.count
+    end
+
+    def gas_type
+      object.reactions_samples.pick(:gas_type)
+    end
+
+    def gas_phase_data
+      object.reactions_samples.pick(:gas_phase_data)
     end
   end
 end

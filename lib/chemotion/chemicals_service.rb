@@ -4,10 +4,14 @@ module Chemotion
   class ChemicalsService
     def self.request_options
       { headers: {
-        'Access-Control-Request-Method' => 'GET',
-        'Accept' => '*/*',
-        'User-Agent': 'Google Chrome',
-      } }
+          'Access-Control-Request-Method' => 'GET',
+          'Accept' => '*/*',
+          'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0',
+          'Accept-Encoding': 'gzip, deflate, br',
+          Connection: 'keep-alive',
+        },
+        timeout: 15,
+        follow_redirects: true }
     end
 
     def self.merck_request(name)
@@ -50,21 +54,10 @@ module Chemotion
       'Could not find safety data sheet from Thermofisher'
     end
 
-    def self.check_if_safety_sheet_already_saved(file_name, safety_sheet_files_names)
-      saved = false
-      unless  safety_sheet_files_names.empty?
-        safety_sheet_files_names.each do |file|
-          if file == file_name
-            saved = true
-            break
-          end
-        end
-      end
-      saved
-    end
-
     def self.write_file(file_path, link)
-      req_safety_sheet = HTTParty.get(link, request_options)
+      options = request_options.dup
+      options[:headers]['Origin'] = 'https://www.sigmaaldrich.com'
+      req_safety_sheet = HTTParty.get(link, options)
       file_name = "public/safety_sheets/#{file_path}"
       if req_safety_sheet.headers['Content-Type'] == 'application/pdf'
         File.binwrite(file_name, req_safety_sheet)
@@ -72,15 +65,15 @@ module Chemotion
       else
         'there is no file to save'
       end
+    rescue HTTParty::RedirectionTooDeep => e
+      "Redirection limit exceeded: #{e}"
+    rescue HTTParty::TimeoutError => e
+      "Request timed out: #{e}"
     end
 
     def self.create_sds_file(file_path, link)
-      safety_sheet_files_names = Dir.children('public/safety_sheets')
-      if check_if_safety_sheet_already_saved(file_path, safety_sheet_files_names) == false
-        write_file(file_path, link)
-      else
-        'file is already saved'
-      end
+      write_file(file_path, link)
+      sleep 1
     rescue StandardError
       'could not save safety data sheet'
     end
@@ -95,7 +88,7 @@ module Chemotion
       h_statements = {}
       h_phrases_hash = JSON.parse(File.read('./public/json/hazardPhrases.json'))
 
-      h_array = vendor == 'merck' ? h_phrases[1].split(/\s[+-]\s/) : h_phrases
+      h_array = vendor == 'merck' ? h_phrases[4].split(',') : h_phrases
       h_array.each do |element|
         h_phrases_hash.map { |k, v| k == element ? h_statements[k] = " #{v}" : nil }
       end
@@ -105,7 +98,7 @@ module Chemotion
     def self.construct_p_statements(p_phrases, vendor = nil)
       p_statements = {}
       p_phrases_hash = JSON.parse(File.read('./public/json/precautionaryPhrases.json'))
-      p_array = vendor == 'merck' ? p_phrases[2].split(/\s[+-]\s/) : p_phrases
+      p_array = vendor == 'merck' ? p_phrases[5].split('-').map { |element| element.gsub(/\s+/, '') } : p_phrases
       p_array.each do |element|
         p_phrases_hash.map { |k, v| k == element ? p_statements[k] = " #{v}" : nil }
       end
@@ -114,7 +107,7 @@ module Chemotion
 
     def self.construct_pictograms(pictograms)
       pictograms_hash = JSON.parse(File.read('./public/json/pictograms.json'))
-      pictograms.filter_map { |e| pictograms_hash[e] || nil }
+      pictograms.filter_map { |e| pictograms_hash[e] ? e : nil }
     end
 
     def self.safety_phrases_thermofischer(product_number)
@@ -124,8 +117,7 @@ module Chemotion
       pictograms = health_section.css('img').map do |e|
         e.attributes['src'].value.gsub('/static//images/pictogram/', '')
       end
-      h_statements = construct_h_statements(h_phrases)
-      { 'h_statements' => h_statements,
+      { 'h_statements' => construct_h_statements(h_phrases),
         'p_statements' => construct_p_statements(p_phrases),
         'pictograms' => construct_pictograms(pictograms) }
     rescue StandardError
@@ -142,11 +134,10 @@ module Chemotion
     def self.safety_phrases_merck(product_link)
       safety_section = safety_section(product_link)
       safety_array = safety_section.children.reject { |i| i.text.empty? }.map(&:text)
-      pictograms = safety_array[0].split(',')
-      verified_pictograms = pictograms.select { |pictogram| pictograms_hash.value?(pictogram) }
+      pictograms = safety_array[3].split(',')
       { 'h_statements' => construct_h_statements(safety_array, 'merck'),
         'p_statements' => construct_p_statements(safety_array, 'merck'),
-        'pictograms' => verified_pictograms }
+        'pictograms' => construct_pictograms(pictograms) }
     rescue StandardError
       'Could not find H and P phrases'
     end

@@ -4,7 +4,9 @@ module Entities
   class ReactionVariationEntity < ApplicationEntity
     expose(
       :id,
+      :notes,
       :properties,
+      :analyses,
       :reactants,
       :products,
       :solvents,
@@ -51,10 +53,9 @@ module Entities
   end
 
   class ReactionVariationMaterialEntity < ApplicationEntity
-    expose(
-      :value,
-      :unit,
-    )
+    expose :mass, using: 'Entities::ReactionVariationMaterialEntryEntity'
+    expose :amount, using: 'Entities::ReactionVariationMaterialEntryEntity'
+    expose :volume, using: 'Entities::ReactionVariationMaterialEntryEntity'
     expose :aux, using: 'Entities::ReactionVariationMaterialAuxEntity'
   end
 
@@ -69,6 +70,13 @@ module Entities
       :sumFormula,
       :yield,
       :equivalent,
+    )
+  end
+
+  class ReactionVariationMaterialEntryEntity < ApplicationEntity
+    expose(
+      :value,
+      :unit,
     )
   end
 end

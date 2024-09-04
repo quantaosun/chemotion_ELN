@@ -2,17 +2,18 @@
 #
 # Table name: screens
 #
-#  id                   :integer          not null, primary key
-#  description          :string
-#  name                 :string
-#  result               :string
-#  collaborator         :string
-#  conditions           :string
-#  requirements         :string
-#  created_at           :datetime         not null
-#  updated_at           :datetime         not null
-#  deleted_at           :datetime
-#  component_graph_data :jsonb
+#  id                     :integer          not null, primary key
+#  description            :string
+#  name                   :string
+#  result                 :string
+#  collaborator           :string
+#  conditions             :string
+#  requirements           :string
+#  created_at             :datetime         not null
+#  updated_at             :datetime         not null
+#  deleted_at             :datetime
+#  component_graph_data   :jsonb
+#  plain_text_description :text
 #
 # Indexes
 #
@@ -71,6 +72,6 @@ class Screen < ApplicationRecord
   def description_to_plain_text
     return unless description_changed?
 
-    self.plain_text_description = Chemotion::QuillToPlainText.new.convert(description)
+    self.plain_text_description = Chemotion::QuillToPlainText.convert(description)
   end
 end

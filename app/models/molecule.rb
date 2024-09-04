@@ -177,15 +177,10 @@ class Molecule < ApplicationRecord
                     else
                       "#{SecureRandom.hex(64)}.svg"
                     end
-    Loofah::HTML5::SafeList::ALLOWED_ATTRIBUTES.add('overflow')
     # NB: successiv gsub seems to be faster than a single gsub with a regexp with multiple matches
-    scrubbed_data = Loofah.scrub_fragment(svg_data.encode('UTF-8'), :strip).to_s
-                          .gsub('viewbox', 'viewBox')
-                          .gsub('lineargradient', 'linearGradient')
-                          .gsub('radialgradient', 'radialGradient')
     File.write(
       full_svg_path(svg_file_name),
-      scrubbed_data,
+      Chemotion::Sanitizer.scrub_svg(svg_data, encoding: 'UTF-8'),
     )
 
     self.molecule_svg_file = svg_file_name
@@ -258,7 +253,7 @@ class Molecule < ApplicationRecord
   end
 
   def self.svg_reprocess(svg, molfile)
-    return svg unless Rails.configuration.try(:ketcher_service).try(:url).present?
+    return svg if Rails.configuration.ketcher_service.disabled?
     return svg if svg.present? && !svg&.include?('Open Babel')
 
     svg = KetcherService::RenderSvg.svg(molfile)
