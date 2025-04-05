@@ -1,6 +1,6 @@
 An example of this ELN
 
-eln.qutesun.me
+https://eln.qutesun.me
 
 (until Jan.2026))
 
