@@ -1,3 +1,11 @@
+An example of this ELN
+
+eln.qutesun.me
+
+(until Jan.2026))
+
+
+
 # Chemotion [![Badge DOI]][DOI]
 
 An **Electronic Lab Notebook** for chemists!
